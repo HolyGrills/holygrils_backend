@@ -8,7 +8,7 @@ load balancers, uptime monitors, and deployment pipelines.
 Response shape:
     {
         "status": "ok" | "degraded",
-        "api": "Holy Grills",
+        "api": "<APP_NAME from config>",
         "version": "1.0.0",
         "checks": {
             "supabase": "connected" | "error:<status>" | "unreachable:<msg>",
@@ -43,7 +43,7 @@ def health():
         schema:
           properties:
             status:  {type: string, example: ok}
-            api:     {type: string, example: "Holy Grills", description: "APP_NAME from config"}
+            api:     {type: string, example: "My App", description: "APP_NAME from config"}
             version: {type: string, example: "1.0.0"}
             checks:  {type: object}
     """

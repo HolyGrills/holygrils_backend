@@ -1422,7 +1422,7 @@ def _distribute_squad_hp(order_id: str, total_hp: int, organizer_id: str):
 
         for uid in registered_ids:
             try:
-                earn_pending_hp(
+                award_active_hp((
                     user_id=uid,
                     amount=share,
                     source_type="squad_bonus",

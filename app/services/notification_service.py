@@ -33,7 +33,7 @@ _CRITICAL_NOTIF_TYPES = frozenset({
     "hp_earned", "hp_unlocked", "hp_decay",
     "tier_upgrade", "tier_dropped", "tier_grace_period",
     "wallet_funded", "payment_confirmed",
-    "referral_completed", "referral_milestone",
+    "referral_completed",
     "birthday_bonus", "graduation_hp", "hall_of_fame",
     "membership_anniversary", "order_lock_redeemed",
     "first_order_gift", "checkin_streak_week", "order_streak",
@@ -667,48 +667,22 @@ def _get_onesignal_creds() -> tuple:
 
 def _dispatch_email_async(user_id: str, subject: str, body: str, notification_id: str):
     """
-    Send a transactional email via OneSignal to the user's registered email address.
+    Send a transactional email via Resend to the user's registered email address.
     Looks up user email from profiles. Silently skips if credentials or email not found.
     """
     try:
-        app_id, api_key = _get_onesignal_creds()
-        if not app_id or not api_key:
+        api_key = os.environ.get("RESEND_API_KEY", "")
+        if not api_key:
             return
 
-        from app.utils.email import get_user_email_and_name
+        from app.utils.email import get_user_email_and_name, send_email_raw, _build_html
         email, name = get_user_email_and_name(user_id)
         if not email:
             return
 
-        from_email = os.environ.get("EMAIL_FROM", "noreply@holygrills.ng")
-        from_name = os.environ.get("EMAIL_FROM_NAME", "Holy Grills")
         app_tagline = os.environ.get("APP_TAGLINE", "Holy Grills FUTA")
-
-        body_html = body.replace("\n", "<br>")
-        full_html = (
-            f"<html><body style='font-family:sans-serif;max-width:600px;margin:auto;padding:20px'>"
-            f"<p>Hi {name},</p>"
-            f"<p>{body_html}</p>"
-            f"<br><p style='color:#888;font-size:12px'>— {app_tagline}</p>"
-            f"</body></html>"
-        )
-
-        payload = {
-            "app_id": app_id,
-            "include_email_tokens": [email],
-            "email_subject": subject,
-            "email_body": full_html,
-            "email_from_name": from_name,
-            "email_from_address": from_email,
-        }
-
-        resp = _onesignal_post(
-            f"{_ONESIGNAL_BASE}/notifications",
-            headers={"Authorization": f"Key {api_key}", "Content-Type": "application/json"},
-            payload=payload,
-        )
-        if resp.status_code not in (200, 202):
-            logger.warning("OneSignal email error %s for user %s: %s", resp.status_code, user_id, resp.text[:200])
+        html_body = _build_html(name or "there", body, app_tagline)
+        send_email_raw(email, name or "there", subject, html_body)
     except Exception as e:
         logger.error("Email dispatch error for user %s: %s", user_id, e)
 

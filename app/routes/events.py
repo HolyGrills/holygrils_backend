@@ -1,6 +1,6 @@
-"""Events routes — discovery, catering requests, QR check-in."""
+"""Events routes — discovery, catering requests, QR check-in, ticket tiers, admin export."""
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 from app.middleware.auth import require_auth, require_role
 from app.services.hp_service import earn_pending_hp
 from app.db import get_db, SupabaseError
@@ -183,14 +183,6 @@ def checkin(event_id):
             reference_id=event_id,
             notes=f"Event check-in HP: {event.get('title', '') if event else ''}",
         )
-
-        # Fire first_event badge trigger
-        try:
-            from app.services.milestone_service import check_milestone_trigger
-            check_milestone_trigger(g.user_id, "first_event", 1)
-            check_milestone_trigger(g.user_id, "event_checkins", 1)
-        except Exception:
-            pass
 
         from app.services.notification_service import send_notification
         send_notification(
@@ -871,3 +863,384 @@ def create_event():
         safe2 = {k: v for k, v in safe.items() if k not in PHASE2_COLS}
         result = db.table("events").insert(safe2)
     return jsonify(result[0] if isinstance(result, list) else result), 201
+
+
+# ── Ticket Tiers ─────────────────────────────────────────────────────────────
+
+@events_bp.route("/<event_id>/tiers", methods=["GET"])
+def list_event_tiers(event_id):
+    """
+    List ticket tiers for an event (public).
+    ---
+    tags: [Events]
+    security: []
+    parameters:
+      - in: path
+        name: event_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Tier list
+      404:
+        description: Event not found
+    """
+    db = get_db()
+    event = db.table("events").select("id,title").eq("id", event_id).single().execute()
+    if not event:
+        return jsonify({"error": MSG.EVENT_NOT_FOUND}), 404
+    tiers = (
+        db.table("event_ticket_tiers")
+        .select("id,name,price_naira,price_hp,capacity,sold_count,description")
+        .eq("event_id", event_id)
+        .order("price_naira")
+        .execute()
+    ) or []
+    return jsonify(tiers), 200
+
+
+@events_bp.route("/<event_id>/tiers", methods=["POST"])
+@require_role("admin")
+def create_event_tier(event_id):
+    """
+    Create a ticket tier for an event (admin only).
+    ---
+    tags: [Events]
+    parameters:
+      - in: path
+        name: event_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          required: [name]
+          properties:
+            name: {type: string}
+            price_naira: {type: number}
+            price_hp: {type: integer}
+            capacity: {type: integer}
+            description: {type: string}
+    responses:
+      201:
+        description: Tier created
+      404:
+        description: Event not found
+    """
+    db = get_db()
+    event = db.table("events").select("id").eq("id", event_id).single().execute()
+    if not event:
+        return jsonify({"error": MSG.EVENT_NOT_FOUND}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": MSG.TIER_NAME_REQUIRED}), 400
+
+    price_naira = data.get("price_naira", 0)
+    price_hp    = data.get("price_hp", 0)
+    if price_naira < 0 or price_hp < 0:
+        return jsonify({"error": MSG.TIER_PRICE_INVALID}), 400
+
+    capacity = data.get("capacity")
+    if capacity is not None and (not isinstance(capacity, int) or capacity < 1):
+        return jsonify({"error": MSG.TIER_CAPACITY_INVALID_TIER}), 400
+
+    payload = {
+        "event_id": event_id,
+        "name": sanitize_string(name, max_len=120),
+        "price_naira": price_naira,
+        "price_hp": price_hp,
+        "capacity": capacity,
+        "description": sanitize_string(data.get("description", ""), max_len=500),
+        "sold_count": 0,
+    }
+    result = db.table("event_ticket_tiers").insert(payload)
+    saved = result[0] if isinstance(result, list) else result
+    return jsonify(saved), 201
+
+
+@events_bp.route("/tiers/<tier_id>", methods=["PATCH"])
+@require_role("admin")
+def update_event_tier(tier_id):
+    """
+    Update a ticket tier (admin only).
+    ---
+    tags: [Events]
+    parameters:
+      - in: path
+        name: tier_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        schema:
+          properties:
+            name: {type: string}
+            price_naira: {type: number}
+            price_hp: {type: integer}
+            capacity: {type: integer}
+            description: {type: string}
+    responses:
+      200:
+        description: Tier updated
+      404:
+        description: Tier not found
+    """
+    db = get_db()
+    tier = db.table("event_ticket_tiers").select("*").eq("id", tier_id).single().execute()
+    if not tier:
+        return jsonify({"error": MSG.TIER_NOT_FOUND}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    ALLOWED = {"name", "price_naira", "price_hp", "capacity", "description"}
+    safe = {k: v for k, v in data.items() if k in ALLOWED}
+
+    if "name" in safe:
+        safe["name"] = sanitize_string(safe["name"], max_len=120)
+    if "description" in safe:
+        safe["description"] = sanitize_string(safe["description"], max_len=500)
+    if "capacity" in safe and safe["capacity"] is not None:
+        sold = int(tier.get("sold_count") or 0)
+        if int(safe["capacity"]) < sold:
+            return jsonify({"error": MSG.EVENT_CAPACITY_BELOW_ISSUED.format(issued=sold)}), 400
+
+    result = db.table("event_ticket_tiers").eq("id", tier_id).update(safe)
+    updated = result[0] if isinstance(result, list) else result
+    return jsonify(updated), 200
+
+
+@events_bp.route("/tiers/<tier_id>", methods=["DELETE"])
+@require_role("admin")
+def delete_event_tier(tier_id):
+    """
+    Delete a ticket tier (admin only). Forbidden if any tickets sold.
+    ---
+    tags: [Events]
+    parameters:
+      - in: path
+        name: tier_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Tier deleted
+      400:
+        description: Cannot delete — tickets already sold
+      404:
+        description: Tier not found
+    """
+    db = get_db()
+    tier = db.table("event_ticket_tiers").select("*").eq("id", tier_id).single().execute()
+    if not tier:
+        return jsonify({"error": MSG.TIER_NOT_FOUND}), 404
+
+    sold = int(tier.get("sold_count") or 0)
+    if sold > 0:
+        return jsonify({"error": MSG.TIER_DELETE_HAS_SALES, "sold_count": sold}), 400
+
+    db.table("event_ticket_tiers").eq("id", tier_id).delete()
+    return jsonify({"message": "Tier deleted"}), 200
+
+
+# ── Admin event ticket export & send-to-host ──────────────────────────────────
+
+@events_bp.route("/<event_id>/registrants", methods=["GET"])
+@require_role("admin")
+def list_event_registrants(event_id):
+    """
+    List all registrants for an event (admin only).
+    Optional ?format=csv for CSV download.
+    ---
+    tags: [Events]
+    parameters:
+      - in: path
+        name: event_id
+        type: string
+        required: true
+      - in: query
+        name: format
+        type: string
+        enum: [json, csv]
+        default: json
+    responses:
+      200:
+        description: Registrant list
+      404:
+        description: Event not found
+    """
+    db = get_db()
+    event = db.table("events").select("id,title,starts_at,location").eq("id", event_id).single().execute()
+    if not event:
+        return jsonify({"error": MSG.EVENT_NOT_FOUND}), 404
+
+    tickets = (
+        db.table("event_tickets")
+        .select("id,user_id,tier_id,status,created_at,qr_token")
+        .eq("event_id", event_id)
+        .order("created_at")
+        .execute()
+    ) or []
+
+    # Enrich with profile and tier info
+    user_ids = list({t["user_id"] for t in tickets if t.get("user_id")})
+    tier_ids = list({t["tier_id"] for t in tickets if t.get("tier_id")})
+
+    profiles = {}
+    if user_ids:
+        profile_rows = db.table("profiles").select("id,full_name,phone,email").in_("id", user_ids).execute() or []
+        profiles = {p["id"]: p for p in profile_rows}
+
+    tiers = {}
+    if tier_ids:
+        tier_rows = db.table("event_ticket_tiers").select("id,name").in_("id", tier_ids).execute() or []
+        tiers = {t["id"]: t for t in tier_rows}
+
+    # Fetch check-in status
+    ticket_ids = [t["id"] for t in tickets]
+    checkins = {}
+    if ticket_ids:
+        ci_rows = db.table("event_checkins").select("ticket_id,checked_in_at").in_("ticket_id", ticket_ids).execute() or []
+        checkins = {r["ticket_id"]: r["checked_in_at"] for r in ci_rows}
+
+    enriched = []
+    for t in tickets:
+        prof = profiles.get(t.get("user_id"), {})
+        tier = tiers.get(t.get("tier_id"), {})
+        enriched.append({
+            "ticket_id":    t["id"],
+            "full_name":    prof.get("full_name"),
+            "phone":        prof.get("phone"),
+            "email":        prof.get("email"),
+            "tier_name":    tier.get("name"),
+            "status":       t.get("status"),
+            "registered_at": t.get("created_at"),
+            "checked_in":   bool(checkins.get(t["id"])),
+            "checked_in_at": checkins.get(t["id"]),
+        })
+
+    fmt = request.args.get("format", "json").lower()
+    if fmt == "csv":
+        import csv, io
+        si = io.StringIO()
+        writer = csv.DictWriter(si, fieldnames=[
+            "ticket_id", "full_name", "phone", "email", "tier_name",
+            "status", "registered_at", "checked_in", "checked_in_at",
+        ])
+        writer.writeheader()
+        writer.writerows(enriched)
+        from flask import make_response
+        output = make_response(si.getvalue())
+        output.headers["Content-Disposition"] = f"attachment; filename=event_{event_id}_registrants.csv"
+        output.headers["Content-Type"] = "text/csv"
+        return output
+
+    return jsonify({
+        "event": event,
+        "registrants": enriched,
+        "total": len(enriched),
+    }), 200
+
+
+@events_bp.route("/<event_id>/send-registrants-to-host", methods=["POST"])
+@require_role("admin")
+def send_registrants_to_host(event_id):
+    """
+    Email the full registrant list to the event organiser / host.
+    Body: { "host_email": "organizer@example.com", "host_name": "Jane" }
+    ---
+    tags: [Events]
+    parameters:
+      - in: path
+        name: event_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          required: [host_email]
+          properties:
+            host_email: {type: string, format: email}
+            host_name:  {type: string}
+    responses:
+      200:
+        description: Email sent
+      404:
+        description: Event not found
+    """
+    db = get_db()
+    event = db.table("events").select("*").eq("id", event_id).single().execute()
+    if not event:
+        return jsonify({"error": MSG.EVENT_NOT_FOUND}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    host_email = (data.get("host_email") or "").strip()
+    host_name  = (data.get("host_name")  or "Event Organiser").strip()
+    custom_message = (data.get("custom_message") or "").strip()
+    if not host_email:
+        return jsonify({"error": "host_email is required"}), 400
+
+    # Build registrant table (reuse list_event_registrants logic inline)
+    tickets = (
+        db.table("event_tickets")
+        .select("id,user_id,tier_id,status,created_at")
+        .eq("event_id", event_id)
+        .order("created_at")
+        .execute()
+    ) or []
+
+    user_ids = list({t["user_id"] for t in tickets if t.get("user_id")})
+    tier_ids = list({t["tier_id"] for t in tickets if t.get("tier_id")})
+
+    profiles = {}
+    if user_ids:
+        prows = db.table("profiles").select("id,full_name,phone,email").in_("id", user_ids).execute() or []
+        profiles = {p["id"]: p for p in prows}
+
+    tiers = {}
+    if tier_ids:
+        trows = db.table("event_ticket_tiers").select("id,name").in_("id", tier_ids).execute() or []
+        tiers = {t["id"]: t for t in trows}
+
+    rows_html = ""
+    for t in tickets:
+        prof = profiles.get(t.get("user_id"), {})
+        tier = tiers.get(t.get("tier_id"), {})
+        rows_html += (
+            f"<tr><td>{prof.get('full_name','')}</td>"
+            f"<td>{prof.get('phone','')}</td>"
+            f"<td>{prof.get('email','')}</td>"
+            f"<td>{tier.get('name','')}</td>"
+            f"<td>{t.get('status','')}</td></tr>"
+        )
+
+    html = (
+        f"<html><body style='font-family:sans-serif'>"
+        f"<h2>Registrants for: {event.get('title', event_id)}</h2>"
+        f"<p>Date: {event.get('starts_at','')}</p>"
+        f"<p>Location: {event.get('location','')}</p>"
+        f"<p>Total: {len(tickets)}</p>"
+        f"<p>{custom_message}</p>" if custom_message else ""
+        f"<table border='1' cellpadding='6' cellspacing='0'>"
+        f"<tr><th>Name</th><th>Phone</th><th>Email</th><th>Tier</th><th>Status</th></tr>"
+        f"{rows_html}"
+        f"</table></body></html>"
+    )
+
+    from app.utils.email import send_email_raw
+    ok = send_email_raw(
+        to_email=host_email,
+        to_name=host_name,
+        subject=f"Registrant List — {event.get('title', event_id)}",
+        html_body=html,
+    )
+    if not ok:
+        return jsonify({"error": "Failed to send email — check RESEND_API_KEY"}), 502
+
+    return jsonify({
+        "message": "Registrant list sent",
+        "host_email": host_email,
+        "count": len(tickets),
+    }), 200

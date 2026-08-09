@@ -1,10 +1,7 @@
-modules = ["python-3.11", "postgresql-16"]
+modules = ["python-3.11"]
 [nix]
 channel = "stable-25_05"
 packages = ["cargo", "libiconv", "rustc"]
-
-[agent]
-expertMode = true
 
 [workflows]
 runButton = "Project"
@@ -18,10 +15,6 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Celery Worker"
-
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -33,17 +26,6 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[[workflows.workflow]]
-name = "Celery Worker"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "celery -A app.tasks.celery_app.celery_app worker --loglevel=info --concurrency=2"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[ports]]
 localPort = 5000

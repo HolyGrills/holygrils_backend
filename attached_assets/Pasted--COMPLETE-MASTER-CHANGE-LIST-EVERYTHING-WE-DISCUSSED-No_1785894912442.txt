@@ -1,0 +1,442 @@
+‎✅ COMPLETE MASTER CHANGE LIST — EVERYTHING WE DISCUSSED
+‎
+‎No Omissions — All Changes from Every Review
+‎
+‎---
+‎
+‎📋 GENERAL DIRECTIVES
+‎
+‎· No hardcoded values — all amounts, thresholds, caps, and probabilities must be configurable via system_settings table or environment variables.
+‎· All notification channels must default to ["push", "in_app"]; email only for crucial notifications.
+‎· Feature flags must be used to gate features until ready for launch.
+‎
+‎---
+‎
+‎1. SYSTEM SETTINGS — FIX EXISTING VALUES
+‎
+‎Setting Key Current Value Fix
+‎launch_window_end_date 2099-12-31 Change to 2026-12-31
+‎platform_name "Holy Girls FUTA" Change to "Holy Grills FUTA"
+‎multiplier_expires_at 30 Change to actual date (e.g., 2026-12-31)
+‎referral_hp_reward 75 ❌ Remove (duplicate of referral_hp)
+‎sim_setting_* (4 entries) Various ❌ Remove (test settings)
+‎
+‎---
+‎
+‎2. SYSTEM SETTINGS — ADD NEW KEYS TO TABLE
+‎
+‎# Setting Key Default Value Purpose
+‎1 first_order_gift_item_name "Hot Dog" Name of gift item
+‎2 first_order_gift_item_price 0 Price of gift item
+‎3 free_side_credits_validity_days 60 How long free side credits last
+‎4 exclusive_spin_extra_cost 500 HP cost for extra exclusive spin
+‎5 exclusive_spin_validity_days 30 How long exclusive spin credit lasts
+‎6 order_streak_rewards {"3":100,"6":200,"12":350} HP per order streak milestone
+‎7 membership_rewards {"3":100,"6":200,"12":500,"24":750,"36":1000,"48":1250,"60":1500} HP per membership anniversary
+‎8 referral_milestones {"5":150,"10":400,"20":750,"30":1200,"50":2500} HP per referral milestone
+‎9 leaderboard_prizes_enabled false Feature flag for leaderboard prizes
+‎10 hall_of_fame_enabled false Feature flag for Hall of Fame
+‎11 badge_system_enabled false Feature flag for badge system
+‎12 spin_and_win_enabled false Feature flag for spin system
+‎13 exclusive_spin_template_items [{"name":"Free Sausage ×2","weight":15},{"name":"Free Gizzard ×3","weight":15},{"name":"Free Side","weight":10},{"name":"Free Coleslaw","weight":10},{"name":"HP Jackpot +750","weight":5},{"name":"HP Bolt +300","weight":20},{"name":"HP Boost +150","weight":15},{"name":"Double HP next order","weight":10}] Exclusive spin prize template
+‎14 free_side_options ["Fries","Coleslaw","Plantain","Gizzard"] Available free side options
+‎
+‎---
+‎
+‎3. CONFIG.PY — ADD NEW KEYS
+‎
+‎# Setting Key Default Value Purpose
+‎1 FREE_SIDE_CREDITS_VALIDITY_DAYS 60 How long free side credits last
+‎2 EXCLUSIVE_SPIN_EXTRA_COST 500 HP cost for extra exclusive spin
+‎3 EXCLUSIVE_SPIN_VALIDITY_DAYS 30 How long exclusive spin credit lasts
+‎4 ORDER_STREAK_REWARDS {"3":100,"6":200,"12":350} HP per order streak milestone
+‎5 MEMBERSHIP_REWARDS {"3":100,"6":200,"12":500,"24":750,"36":1000,"48":1250,"60":1500} HP per membership anniversary
+‎6 REFERRAL_MILESTONES {"5":150,"10":400,"20":750,"30":1200,"50":2500} HP per referral milestone
+‎7 EXCLUSIVE_SPIN_TEMPLATE_ITEMS [{"name":"Free Sausage ×2","weight":15},{"name":"Free Gizzard ×3","weight":15},{"name":"Free Side","weight":10},{"name":"Free Coleslaw","weight":10},{"name":"HP Jackpot +750","weight":5},{"name":"HP Bolt +300","weight":20},{"name":"HP Boost +150","weight":15},{"name":"Double HP next order","weight":10}] Exclusive spin prize template
+‎8 FREE_SIDE_OPTIONS ["Fries","Coleslaw","Plantain","Gizzard"] Available free side options
+‎
+‎---
+‎
+‎4. HALL OF FAME — CHANGE THRESHOLD
+‎
+‎File Current Logic Change To
+‎app/tasks/scheduled.py if new_count == 4: if new_count == 3:
+‎
+‎Explanation: Users need 3 Top 4 finishes (not 4) to be inducted.
+‎
+‎---
+‎
+‎5. SQUAD ORDER — VERIFY MAX ITEMS
+‎
+‎Setting Key Default Value Purpose
+‎SQUAD_ORDER_MAX_ITEMS 6 Maximum items allowed in a squad order
+‎
+‎Action: Verify this value is used in order creation logic to enforce the limit.
+‎
+‎---
+‎
+‎6. FEATURE FLAGS — NEW TABLE
+‎
+‎Table Schema
+‎
+‎Column Type Description
+‎feature_name VARCHAR(50) Primary key
+‎is_active BOOLEAN Default false
+‎campus_id UUID NULL = global
+‎updated_at TIMESTAMP Last update
+‎updated_by UUID Admin who changed it
+‎
+‎Flags to Create
+‎
+‎Flag Name Purpose Flip When
+‎leaderboard_prizes Toggle all leaderboard rewards After first month of data
+‎free_side_credits Toggle free side system Same as leaderboard_prizes
+‎exclusive_spin Toggle exclusive spin Same as leaderboard_prizes
+‎hall_of_fame Toggle Hall of Fame After 3 months of data
+‎badge_system Toggle badge engine 200+ active users
+‎spin_and_win Toggle regular spin 200+ active users
+‎marketplace_general Toggle marketplace 500+ active users
+‎hp_transfer Toggle HP transfer Phase 3
+‎
+‎---
+‎
+‎7. FREE SIDE CREDITS — NEW SYSTEM
+‎
+‎Table Schema
+‎
+‎Column Type Description
+‎id UUID Primary key
+‎user_id UUID References profiles
+‎credits_remaining INTEGER Number of free sides left
+‎source VARCHAR "leaderboard"
+‎month VARCHAR e.g., "2026-07"
+‎created_at TIMESTAMP When awarded
+‎expires_at TIMESTAMP 60 days after creation
+‎used_at TIMESTAMP When fully used
+‎
+‎Assignment (End of Month Cron)
+‎
+‎Rank Credits
+‎#1 3 credits
+‎#2 2 credits
+‎#3 1 credit
+‎
+‎Checkout Logic
+‎
+‎· At checkout, if user has credits > 0 → show pop-up
+‎· User selects side from admin-configurable list (free_side_options)
+‎· Side added at ₦0
+‎· Credits decrement by 1
+‎· Kitchen sees "🏆 Reward" tag
+‎
+‎---
+‎
+‎8. EXCLUSIVE SPIN — NEW SYSTEM
+‎
+‎Table Schema
+‎
+‎Column Type Description
+‎id UUID Primary key
+‎user_id UUID References profiles
+‎spin_count INTEGER Number of free spins available
+‎source VARCHAR "leaderboard"
+‎month VARCHAR e.g., "2026-07"
+‎created_at TIMESTAMP When awarded
+‎expires_at TIMESTAMP 30 days after creation
+‎
+‎Assignment (End of Month Cron)
+‎
+‎· 1 free spin to #1–10
+‎· Extra spins available for EXCLUSIVE_SPIN_EXTRA_COST HP each (default 500)
+‎
+‎Exclusive Spin Template Items (Configurable)
+‎
+‎Template Item Default Weight/Probability
+‎Free Sausage ×2 15%
+‎Free Gizzard ×3 15%
+‎Free Side 10%
+‎Free Coleslaw 10%
+‎HP Jackpot +750 5%
+‎HP Bolt +300 20%
+‎HP Boost +150 15%
+‎Double HP next order 10%
+‎
+‎Admin Config
+‎
+‎· Prize names
+‎· Prize images
+‎· Probabilities/weights
+‎· Extra spin cost (default: 500 HP)
+‎· Template items read from exclusive_spin_template_items setting
+‎
+‎---
+‎
+‎9. LEADERBOARD PRIZES — REWARD STRUCTURE (Locked)
+‎
+‎Rank Free Sides Exclusive Spin HP
+‎#1 3 orders 1 free spin ❌ No
+‎#2 2 orders 1 free spin ❌ No
+‎#3 1 order 1 free spin ❌ No
+‎#4–10 ❌ 1 free spin ❌ No
+‎
+‎No HP rewards. Only free sides + exclusive spin.
+‎
+‎---
+‎
+‎10. LEADERBOARD PRIZES — NOTIFICATION + FULFILMENT
+‎
+‎Admin Notification
+‎
+‎When leaderboard resets and prizes are assigned:
+‎
+‎· Admin receives notification for each user: "[User] ranked #1 — 3 free sides + 1 spin ready to send"
+‎· Admin receives notification: "[User] ranked #2 — 2 free sides + 1 spin ready to send"
+‎· Admin receives notification: "[User] ranked #3 — 1 free side + 1 spin ready to send"
+‎· Admin receives notification: "[User] ranked #4–10 — 1 spin ready to send"
+‎
+‎User Notification
+‎
+‎When user ranks in Top 10:
+‎
+‎· "🎉 You ranked #{rank}! You earned [X] free sides + 1 exclusive spin!"
+‎
+‎Admin Fulfilment Panel
+‎
+‎· View pending rewards (user, rank, reward type)
+‎· Mark as "Fulfilled"
+‎· Fulfilment history
+‎
+‎---
+‎
+‎11. HALL OF FAME "BOX" REWARD
+‎
+‎Admin Notification
+‎
+‎When user is inducted:
+‎
+‎· "🏅 [User] qualified for Hall of Fame! Prepare their reward box."
+‎
+‎User Notification
+‎
+‎When user is inducted:
+‎
+‎· "🏅 You've been inducted into the Hall of Fame! You'll receive a special reward on your next order."
+‎
+‎Admin Fulfilment
+‎
+‎· View pending Hall of Fame rewards
+‎· Mark as "Box Prepared"
+‎· Mark as "Fulfilled"
+‎· Attach reward to user's next order
+‎
+‎---
+‎
+‎12. CHALLENGES — NEW TRIGGER TYPES
+‎
+‎Trigger Type What It Checks
+‎order_distinct_days_weekly Order on 4 different weekdays (Mon-Fri) in same week
+‎item_category / menu_item_id Order 3 different named combos over 3 weeks
+‎min_order_total Place squad order ≥ ₦20,000
+‎
+‎---
+‎
+‎13. BADGES — FOR LEADERBOARD
+‎
+‎Badge Who Gets It When Duration
+‎Reigning Champion #1 monthly winner Awarded each month 1 month (expires)
+‎Grand Slam Hall of Fame inductees Permanent Never expires
+‎Top 10 Finisher #2–10 monthly winners Monthly badge 1 month (expires)
+‎
+‎---
+‎
+‎14. NOTIFICATION CHANNEL RULES
+‎
+‎Rule Logic
+‎Default channels ["push", "in_app"] for all notifications
+‎Email reserved for Only crucial notifications: order_confirmed, order_delivered, delivery_attempted, refund, hp_expiry, tier_drop
+‎
+‎
+‎1. DAILY SIGN-IN — "Mark Box" Action
+‎
+‎What Currently Exists
+‎
+‎· Login streak tracking (auto-recorded when user logs in)
+‎· HP awarded for login streak (2 HP per day)
+‎
+‎The Gap
+‎
+‎· No explicit "Check In" button for users to mark attendance
+‎· No visual calendar/mark box showing which days they've checked in
+‎
+‎Backend Work Needed
+‎
+‎# Task Description
+‎1 POST /daily-checkin Record user's check-in for today (separate from login)
+‎2 GET /daily-checkin/history Return check-in history for calendar display
+‎3 Add checkin_date column or daily_checkins table Store check-ins independently from login
+‎4 Prevent duplicate check-ins per day 1 check-in per day max
+‎
+‎User Journey
+‎
+‎```
+‎1. User opens app → sees "Daily Check-In" section
+‎2. User taps "Check In" button
+‎3. Calendar shows all checked-in days with a ✅ mark
+‎4. Streak counter updates
+‎5. HP awarded (if applicable)
+‎```
+‎
+‎---
+‎
+‎2. EVENT TICKET TIERS — Different Sizes/Prices Under One Event
+‎
+‎The Goal
+‎
+‎Admin creates one event with multiple ticket types:
+‎
+‎· VIP — ₦5,000 / 500 HP
+‎· Regular — ₦2,000 / 200 HP
+‎· Early Bird — ₦1,500 / 150 HP (limited quantity)
+‎· Group (4+) — ₦1,500 per person
+‎
+‎Admin Interface Needed
+‎
+‎# Feature Description
+‎1 Create ticket tiers Admin adds tier name, price (wallet/HP), quantity, description
+‎2 Edit/delete tiers Admin can update or remove tiers
+‎3 Set capacity Admin sets max number of tickets per tier
+‎4 Track sold Admin sees quantity sold per tier
+‎5 Event page Admin sees all tiers listed on event detail
+‎
+‎Backend Work Needed
+‎
+‎# Task Description
+‎1 event_ticket_tiers table Store tier details per event
+‎2 POST /events/{id}/tiers Admin creates tier
+‎3 PATCH /events/tiers/{tier_id} Admin updates tier
+‎4 DELETE /events/tiers/{tier_id} Admin removes tier
+‎5 Update POST /events/{id}/register Accept tier_id when registering
+‎6 Update HP/wallet deduction Charge based on tier price
+‎
+‎User Journey
+‎
+‎```
+‎1. User views event → sees multiple ticket options
+‎2. User selects tier (e.g., "VIP")
+‎3. User pays (wallet/HP) based on tier price
+‎4. Ticket is issued with tier name
+‎5. QR check-in works same as before
+‎```
+‎
+‎---
+‎
+‎3. EVENT REGISTRATION — Handover to Event Host
+‎
+‎The Goal
+‎
+‎After users register for an event, the admin needs to:
+‎
+‎1. View all registrants
+‎2. Export list (CSV/PDF)
+‎3. Send list to event host
+‎
+‎Admin Interface Needed
+‎
+‎# Feature Description
+‎1 Registrant list Admin sees all users registered per event
+‎2 Export button Click to download CSV
+‎3 Send to host button Email the list to the host
+‎
+‎Backend Work Needed
+‎
+‎# Task Description
+‎1 GET /admin/events/{id}/tickets Return all registrants with user details
+‎2 GET /admin/events/{id}/tickets/export Return CSV download
+‎3 POST /admin/events/{id}/tickets/send-to-host Email registrant list to host
+‎
+‎Admin Interface Example
+‎
+‎```
+‎┌─────────────────────────────────────────────────────────────────┐
+‎│  Event: Freshers Party                                        │
+‎│  ───────────────────────────────────────────────────────────── │
+‎│  Ticket Tiers:                                                │
+‎│  ├─ VIP (₦5,000) — 20 sold / 30 available                   │
+‎│  ├─ Regular (₦2,000) — 45 sold / 50 available               │
+‎│  └─ Early Bird (₦1,500) — 15 sold / 20 available            │
+‎│                                                                 │
+‎│  Registrants:                                                  │
+‎│  ┌───────────────────────────────────────────────────────────┐ │
+‎│  │ Name       │ Email          │ Tier  │ Checked In │      │ │
+‎│  │ John Doe   │ john@mail.com  │ VIP   │ ✅ Yes     │      │ │
+‎│  │ Jane Smith │ jane@mail.com  │ Reg   │ ❌ No      │      │ │
+‎│  └───────────────────────────────────────────────────────────┘ │
+‎│                                                                 │
+‎│  [Export CSV]  [Send to Host]                                  │
+‎└─────────────────────────────────────────────────────────────────┘
+‎```
+‎
+‎---
+‎
+‎4. GLOBAL FEATURE FLAGS — FEATURE FLAGS — CLASSIFIED (no rules are hardcoded, all are admin configured and any can be fliped off and on at any time)
+‎
+‎# Feature Description
+‎1 feature_flags table Store feature names and active status
+‎2 GET /admin/feature-flags Admin views all flags
+‎3 PATCH /admin/feature-flags/{name} Admin toggles flag
+‎4 Middleware/helper Check flag status in code
+‎5 Frontend integration UI elements hidden/shown based on flags
+‎
+‎Backend flags — these control logic, data, and business rules. Backend dev owns these.
+‎Flag
+‎Purpose
+‎Flip When
+‎leaderboard_prizes
+‎Enables prize payout logic and winner selection
+‎After first month of leaderboard data
+‎free_side_credits
+‎Controls free side credit issuance and redemption
+‎Same as leaderboard_prizes
+‎exclusive_spin
+‎Unlocks exclusive spin rewards pool
+‎Same as leaderboard_prizes
+‎hall_of_fame
+‎Activates Hall of Fame data recording and winner archiving
+‎After 3 months of data
+‎badge_system
+‎Enables badge engine — award logic, criteria checks, HP triggers
+‎200+ active users
+‎spin_and_win
+‎Enables regular spin mechanics and HP cost deduction
+‎200+ active users
+‎marketplace_general
+‎Opens marketplace to students — listings visible and purchasable
+‎500+ active users
+‎hp_transfer
+‎Enables peer-to-peer HP transfer with guardrails
+‎Phase 3
+‎flash_redemptions
+‎Enables time-limited HP discount drops on specific rewards
+‎300+ active users
+‎squad_orders
+‎Enables group ordering flow and squad HP bonus calculation
+‎500+ active users
+‎referral_milestones
+‎Activates milestone HP awards (5 referrals, 10 referrals bonuses)
+‎200+ active users
+‎subscription_codes
+‎Opens subscription code redemption in rewards store
+‎First code batch uploaded
+‎hp_expiry_warnings
+‎Sends depreciation warning notifications to inactive users
+‎HP system live
+‎birthday_hp
+‎Enables automatic birthday HP award job
+‎HP system live
+‎scheduled_orders
+‎Enables future order scheduling and delivery window pre-booking
+‎Rider active
+‎abandoned_cart_nudge
+‎Enables automated recovery nudge after 30 minutes of cart inactivity
+‎100+ active users
+‎

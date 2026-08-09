@@ -97,13 +97,6 @@ def claim_graduation():
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    # Fire graduation badge trigger
-    try:
-        from app.services.milestone_service import check_milestone_trigger
-        check_milestone_trigger(g.user_id, "graduation", 1)
-    except Exception:
-        pass
-
     # Notify
     try:
         from app.services.notification_service import send_notification

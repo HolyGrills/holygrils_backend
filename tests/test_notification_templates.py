@@ -249,11 +249,6 @@ class TestChannelResolution:
         assert channels == ["push", "in_app"]
         assert "email" not in channels
 
-    def test_referral_milestone_no_email(self):
-        # referral_milestone is not in EMAIL_TYPES — push+in_app only
-        channels = get_notification_channels("referral_milestone")
-        assert "email" not in channels
-
     def test_wallet_funded_card_gets_email(self):
         channels = get_notification_channels("wallet_funded_card")
         assert "email" in channels
@@ -309,7 +304,6 @@ class TestRegistryCompleteness:
     KNOWN_LEGACY = {
         # Conditional/dynamic bodies that cannot be expressed as a single template
         "order_refunded",       # body conditional on wallet_credited flag
-        "milestone_achieved",   # body assembled from DB milestone title + HP suffix
         "birthday_report",      # body is a dynamically assembled user list (title still in registry)
         "order_lock_reminder",  # two different body templates based on reward_type (hp vs discount)
         # send_scheduled_notifications uses title/body from the DB campaign record
@@ -338,7 +332,7 @@ class TestRegistryCompleteness:
         # routes/rewards
         "reward_redeemed", "reward_status", "new_reward",
         # routes/referrals
-        "referral_completed", "referral_milestone",
+        "referral_completed",
         # routes/marketplace
         "marketplace_purchase", "marketplace_purchase_status",
         "marketplace_request", "low_inventory",

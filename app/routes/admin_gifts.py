@@ -162,6 +162,12 @@ def update_setting(key):
     value = data.get("value")
     if value is None:
         return jsonify({"error": MSG.SETTING_VALUE_REQUIRED}), 400
+    if key == "hp_multiplier":
+        try:
+            if float(str(value)) not in (1.0, 2.0):
+                return jsonify({"error": "hp_multiplier must be 1 or 2"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "hp_multiplier must be 1 or 2"}), 400
 
     update_payload = {
         "value": str(value),

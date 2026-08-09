@@ -106,25 +106,34 @@ def reset_monthly_leaderboard(self):
                 except Exception as e:
                     logger.warning("reset_monthly_leaderboard: notify failed for user %s: %s", uid, e)
 
-            # §Spec: Track top-4 finishes; induct to hall_of_fame_inductees at count=4
-            top4_ids = [uid for uid, _ in sorted_users[:4]]
-            for uid in top4_ids:
+            # §Spec: Track top-3 finishes; induct to hall_of_fame_inductees at count=3
+            top3_ids = [uid for uid, _ in sorted_users[:3]]
+            for uid in top3_ids:
                 try:
                     profile = db.table("profiles").select("top4_finish_count").eq("id", uid).single().execute()
                     current_count = int((profile or {}).get("top4_finish_count") or 0)
                     new_count = current_count + 1
                     db.table("profiles").eq("id", uid).update({"top4_finish_count": new_count})
-                    if new_count == 4:
+                    if new_count == 3:
                         # Induct to Hall of Fame
                         try:
                             _hof_profile = db.table("profiles").select("full_name,current_tier").eq("id", uid).single().execute() or {}
                             db.table("hall_of_fame_inductees").insert({
                                 "user_id": uid,
                                 "inducted_at": now.isoformat(),
-                                "full_name": _hof_profile.get("full_name") or (current_app.config.get("APP_NAME", "App") + " Member"),
+                                "full_name": _hof_profile.get("full_name") or ("Platform Member"),
                                 "tier_at_induction": _hof_profile.get("current_tier"),
                                 "top4_finish_count": new_count,
                             })
+                            # Create pending reward record for admin to fulfil
+                            try:
+                                db.table("hall_of_fame_rewards").insert({
+                                    "user_id": uid,
+                                    "inducted_at": now.isoformat(),
+                                    "status": "pending",
+                                })
+                            except Exception:
+                                pass
                         except Exception as _hof_err:
                             logger.warning("reset_monthly_leaderboard: hall_of_fame insert failed for %s: %s", uid, _hof_err)
                         try:
@@ -135,8 +144,92 @@ def reset_monthly_leaderboard(self):
                             )
                         except Exception:
                             pass
+                        # Notify all admins of new inductee
+                        try:
+                            _admin_ids = db.table("profiles").select("id").eq("role", "admin").execute() or []
+                            _hof_name = (db.table("profiles").select("full_name").eq("id", uid).single().execute() or {}).get("full_name", "A user")
+                            for _adm in _admin_ids:
+                                try:
+                                    send_notification(
+                                        user_id=_adm["id"],
+                                        notif_type="admin_hof_induction",
+                                        template_data={"inducted_name": _hof_name, "user_id": uid},
+                                    )
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                 except Exception as e:
-                    logger.warning("reset_monthly_leaderboard: top4 tracking failed for %s: %s", uid, e)
+                    logger.warning("reset_monthly_leaderboard: top3 tracking failed for %s: %s", uid, e)
+
+            # §Spec: Assign leaderboard prizes — free-side credits (#1-#3) + exclusive spin (#1-#10)
+            try:
+                from flask import current_app as _capp
+                _free_days = _capp.config.get("FREE_SIDE_CREDITS_VALIDITY_DAYS", 60)
+                _spin_days  = _capp.config.get("EXCLUSIVE_SPIN_VALIDITY_DAYS", 30)
+                from datetime import timezone as _tz
+                _now = datetime.now(_tz.utc)
+                _free_expires = (_now + timedelta(days=_free_days)).isoformat()
+                _spin_expires  = (_now + timedelta(days=_spin_days)).isoformat()
+
+                FREE_SIDE_COUNTS = {1: 5, 2: 3, 3: 1}  # rank → credit count
+
+                for entry in entries[:10]:
+                    _uid = entry.get("user_id")
+                    _rank = entry.get("rank", 0)
+                    if not _uid:
+                        continue
+
+                    # Award exclusive spin to all top-10
+                    try:
+                        db.table("exclusive_spins").insert({
+                            "user_id": _uid,
+                            "spin_count": 1,
+                            "source": "leaderboard_prize",
+                            "month": period,
+                            "expires_at": _spin_expires,
+                        })
+                    except Exception as _es:
+                        logger.warning("reset_monthly_leaderboard: exclusive_spin insert failed for %s: %s", _uid, _es)
+
+                    # Award free-side credits to #1-#3
+                    _credits = FREE_SIDE_COUNTS.get(_rank, 0)
+                    if _credits > 0:
+                        try:
+                            db.table("free_side_credits").insert({
+                                "user_id": _uid,
+                                "credits_remaining": _credits,
+                                "source": "leaderboard_prize",
+                                "month": period,
+                                "expires_at": _free_expires,
+                            })
+                        except Exception as _fsc:
+                            logger.warning("reset_monthly_leaderboard: free_side_credits insert failed for %s: %s", _uid, _fsc)
+
+                    # Create fulfillment tracking record
+                    try:
+                        db.table("leaderboard_reward_fulfillments").insert({
+                            "user_id": _uid,
+                            "rank": _rank,
+                            "month": period,
+                            "reward_type": "leaderboard_prize",
+                            "status": "pending",
+                        })
+                    except Exception:
+                        pass
+
+                    # Notify user of their prize
+                    try:
+                        _prize_desc = f"{FREE_SIDE_COUNTS.get(_rank, 0)} free sides + 1 exclusive spin" if _rank <= 3 else "1 exclusive spin"
+                        send_notification(
+                            user_id=_uid,
+                            notif_type="leaderboard_prize",
+                            template_data={"rank": _rank, "prize": _prize_desc, "period": period},
+                        )
+                    except Exception:
+                        pass
+            except Exception as _prize_err:
+                logger.warning("reset_monthly_leaderboard: prize assignment failed: %s", _prize_err)
         else:
             entries = []
 

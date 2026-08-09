@@ -894,7 +894,7 @@ def sim_25_challenges(admin_tok, student_tok):
         )
         ok_upd, _ = expect(r, "PATCH /challenges/{id} (deactivate)", [200], warn_on_fail=True)
         if ok_upd:
-            rows = sb_get("milestones", f"id=eq.{ch_id}&select=is_active")
+            rows = sb_get("challenges", f"id=eq.{ch_id}&select=is_active")
             p(
                 "is_active == False after PATCH",
                 "pass" if rows and rows[0]["is_active"] is False else "warn",

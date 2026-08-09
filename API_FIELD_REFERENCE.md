@@ -75,7 +75,6 @@ Quick reference for all string fields that only accept a fixed set of values.
 | `listing_status` | `pending` · `approved` · `rejected` · `draft` · `active` · `archived` |
 | `discount_type` | `percentage` · `flat` |
 | `promo_scope` | `cart` · `item` |
-| `challenge_type` | `one_time` · `recurring` · `daily` · `weekly` · `monthly` |
 | `reward_category` | `food` · `merch` · `experience` · `marketplace` |
 | `redemption_status` | `pending` · `fulfilled` · `rejected` |
 | `platform` (push) | `ios` · `android` · `web` |
@@ -477,19 +476,8 @@ Pricing: ₦5 per HP.
 
 ---
 
-### POST `/api/hp/spin`
-
-Auth: Bearer token.  
-Costs **10 HP** per spin. Returns a random prize.
-
-No request body. Returns:
-```json
-{
-  "prize": "50 HP",
-  "hp_won": 50,
-  "spin_cost_hp": 10
-}
-```
+The regular HP spin, daily free spin, and spin history endpoints have been
+retired. There is no `/api/hp/spin` endpoint.
 
 ---
 
@@ -851,40 +839,11 @@ Auth: Role `admin`.
 
 ---
 
-## Challenges
+## Challenges & badges (retired)
 
-### GET `/api/challenges`
-
-Auth: Bearer token. Returns active challenges.
-
----
-
-### POST `/api/challenges/{challenge_id}/complete`
-
-Auth: Bearer token.
-
-No body required. HP is awarded to the pending pool.
-
-**Business rules**:
-- Each user can only complete a `one_time` challenge once
-- `daily`/`weekly`/`monthly` challenges reset on their cadence
-- HP reward capped at **100 HP** per challenge
-
----
-
-### Admin — POST `/api/challenges`
-
-Auth: Role `admin`.
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `title` | string | ✅ | — |
-| `description` | string | ❌ | — |
-| `type` | string | ✅ | `one_time` · `recurring` · `daily` · `weekly` · `monthly` |
-| `hp_reward` | integer | ✅ | Max 100 |
-| `start_date` | string (ISO datetime) | ❌ | — |
-| `end_date` | string (ISO datetime) | ❌ | — |
-| `is_active` | boolean | ❌ | Default `true` |
+The challenge, milestone, and badge subsystem has been retired. The
+`/api/challenges` prefix is no longer registered, and existing database
+definitions are deactivated by the cleanup migration.
 
 ---
 
@@ -1060,7 +1019,6 @@ Query params: `unread_only` (bool), `page`, `per_page`
 | `squad_order` | Added to a squad order |
 | `event_registered` | Event registration confirmed |
 | `event_hp_pending` | Event check-in HP awarded |
-| `challenge_complete` | Challenge completed |
 | `marketplace_purchase` | Marketplace purchase confirmed |
 | `reward_redemption` | Reward redemption status update |
 | `abandoned_cart` | Cart recovery nudge |

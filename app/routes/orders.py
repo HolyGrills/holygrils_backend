@@ -12,6 +12,36 @@ from datetime import datetime, timezone
 orders_bp = Blueprint("orders", __name__)
 
 
+def _assigned_rider_contact(db, order: dict) -> dict | None:
+    """Resolve the assigned rider from the order's delivery batch.
+
+    The API deliberately returns a tel URI rather than the raw phone number.
+    The profile lookup is always keyed by the persisted batch rider_id; there
+    is no fallback contact value.
+    """
+    batch = order.get("delivery_batches")
+    if isinstance(batch, list):
+        batch = batch[0] if batch else None
+    if not isinstance(batch, dict) or not batch.get("rider_id"):
+        return None
+
+    profile = (
+        db.table("profiles")
+        .select("full_name,phone")
+        .eq("id", batch["rider_id"])
+        .single()
+        .execute()
+    )
+    if not profile:
+        return None
+
+    phone = profile.get("phone")
+    return {
+        "name": profile.get("full_name"),
+        "call_link": f"tel:{phone}" if phone else None,
+    }
+
+
 @orders_bp.route("", methods=["POST"])
 @optional_auth
 @rate_limit("RATE_LIMIT_ORDERS_REQUESTS", "RATE_LIMIT_ORDERS_WINDOW")
@@ -189,7 +219,47 @@ def get_order(order_id):
     else:
         return jsonify({"error": MSG.ORDER_AUTH_REQUIRED}), 403
 
+    # Resolve the assigned rider from the persisted batch/profile relation.
+    # No phone number is embedded in the response or codebase.
+    if g.user_id:
+        rider = _assigned_rider_contact(db, order)
+        if rider:
+            order["assigned_rider"] = rider
+
     return jsonify(order), 200
+
+
+@orders_bp.route("/<order_id>/call-rider", methods=["GET"])
+@require_auth
+def call_assigned_rider(order_id):
+    """Return a dynamic call link for the rider assigned to the order."""
+    import uuid as _uuid
+
+    try:
+        _uuid.UUID(order_id)
+    except (ValueError, AttributeError):
+        return jsonify({"error": MSG.ORDER_NOT_FOUND}), 404
+
+    db = get_db()
+    order = (
+        db.table("orders")
+        .select("id,user_id,delivery_batches(rider_id,status)")
+        .eq("id", order_id)
+        .single()
+        .execute()
+    )
+    if not order:
+        return jsonify({"error": MSG.ORDER_NOT_FOUND}), 404
+    if order.get("user_id") != g.user_id:
+        return jsonify({"error": MSG.ORDER_ACCESS_DENIED}), 403
+
+    rider = _assigned_rider_contact(db, order)
+    if rider is None:
+        return jsonify({"error": MSG.RIDER_NOT_ASSIGNED}), 404
+    if rider.get("call_link") is None:
+        return jsonify({"error": MSG.RIDER_NO_PHONE}), 404
+
+    return jsonify({"rider": rider}), 200
 
 
 @orders_bp.route("/<order_id>/status", methods=["PATCH"])

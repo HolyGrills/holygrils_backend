@@ -588,13 +588,6 @@ def process_order_streak(user_id: str, order_id: str) -> dict:
 
     hp = _award_order_streak_hp(db, user_id, new_streak)
 
-    # Check order_streak_weeks milestone trigger
-    try:
-        from app.services.milestone_service import check_milestone_trigger
-        check_milestone_trigger(user_id, "order_streak_weeks", new_streak)
-    except Exception:
-        pass
-
     return {"streak_weeks": new_streak, "hp_awarded": hp, "new_week": True}
 
 

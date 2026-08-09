@@ -1,0 +1,224 @@
+Each test follows this pattern:
+‎
+‎1. Action — What to do (API call, user action, admin action)
+‎2. Expected Result — What should happen
+‎3. Pass/Fail Criteria — How to know it worked
+‎
+‎---
+‎
+‎1. DAILY SIGN-IN "MARK BOX" — Tests
+‎
+‎Test 1.1: User Checks In for the First Time
+‎
+‎Step Action Expected Result
+‎1 User logs in Login successful
+‎2 User navigates to dashboard "Check In" button visible
+‎3 User clicks "Check In" button ✅ Success message: "Checked in for today!"
+‎4 Check database: daily_checkins table ✅ New record: user_id = current user, checkin_date = today
+‎5 Check GET /auth/streak ✅ Streak count increased by 1
+‎
+‎Test 1.2: User Checks In Twice on the Same Day
+‎
+‎Step Action Expected Result
+‎1 User already checked in today ✅ "Check In" button greyed out or hidden
+‎2 User tries to check in again ❌ Error: "Already checked in today"
+‎3 Check database: daily_checkins ✅ Only 1 record for today
+‎
+‎Test 1.3: User Checks In the Next Day
+‎
+‎Step Action Expected Result
+‎1 User checks in the next day ✅ Success message
+‎2 Check GET /auth/streak ✅ Streak count increased by 1 (consecutive days)
+‎3 Check calendar view ✅ Both days show checkmark
+‎
+‎Test 1.4: User Misses a Day
+‎
+‎Step Action Expected Result
+‎1 User does not check in for 1 day ❌ No check-in record for that day
+‎2 Check GET /auth/streak ✅ Streak reset to 1 (or 0)
+‎3 Calendar view ✅ Missing day has no checkmark
+‎
+‎Test 1.5: Calendar Display
+‎
+‎Step Action Expected Result
+‎1 User checks in for 5 days ✅ Calendar shows 5 checkmarks
+‎2 User checks in for 10 days ✅ Calendar shows 10 checkmarks
+‎3 User views current month ✅ All check-in dates highlighted
+‎
+‎---
+‎
+‎2. EVENT TICKET TIERS — Tests
+‎
+‎Test 2.1: Admin Creates Event with Multiple Ticket Tiers
+‎
+‎Step Action Expected Result
+‎1 Admin creates event via POST /events ✅ Event created
+‎2 Admin adds ticket tiers via POST /events/{id}/tiers ✅ Tiers created
+‎3 Tiers: VIP (₦5,000, 500 HP), Regular (₦2,000, 200 HP), Early Bird (₦1,500, 150 HP) ✅ All 3 tiers saved
+‎4 Check database: event_ticket_tiers ✅ 3 records with correct prices
+‎
+‎Test 2.2: User Registers for Event with Ticket Tier
+‎
+‎Step Action Expected Result
+‎1 User views event detail GET /events/{id} ✅ Response includes ticket tiers
+‎2 User selects "VIP" tier ✅ Price: ₦5,000 + 500 HP
+‎3 User registers via POST /events/{id}/register with tier_id ✅ Registration successful
+‎4 Check event_tickets table ✅ tier_id is set, price_wallet = ₦5,000, price_hp = 500
+‎5 Wallet balance decreased by ₦5,000 ✅ Balance reduced
+‎6 HP balance decreased by 500 ✅ HP reduced
+‎
+‎Test 2.3: Ticket Tier Capacity Check
+‎
+‎Step Action Expected Result
+‎1 Admin sets capacity: VIP = 10 tickets ✅ Capacity set
+‎2 10 users register for VIP tier ✅ All 10 successful
+‎3 11th user tries to register for VIP ❌ Error: "VIP tier sold out"
+‎4 User registers for Regular tier ✅ Successful (capacity not full)
+‎
+‎Test 2.4: Admin Views Registrants by Tier
+‎
+‎Step Action Expected Result
+‎1 Admin views GET /admin/events/{id}/tickets ✅ List includes tier_name, price
+‎2 Filter by tier: ?tier_id=VIP ✅ Only VIP registrants shown
+‎3 Filter by tier: ?tier_id=Regular ✅ Only Regular registrants shown
+‎
+‎Test 2.5: HP Discount on Ticket Purchase
+‎
+‎Step Action Expected Result
+‎1 User selects "VIP" tier with HP price: 500 HP ✅ HP price shown
+‎2 User has 800 HP ✅ Sufficient HP
+‎3 User completes purchase ✅ 500 HP deducted
+‎4 Check HP balance ✅ 300 HP remaining
+‎
+‎---
+‎
+‎3. EVENT REGISTRANT HANDOVER — Tests
+‎
+‎Test 3.1: Admin Exports Registrant List as CSV
+‎
+‎Step Action Expected Result
+‎1 Admin views event with 25 registrants ✅ Registrants listed
+‎2 Admin clicks "Export CSV" ✅ CSV file downloads
+‎3 Open CSV file ✅ Contains: name, email, phone, tier_name, price, registered_at
+‎4 Count rows ✅ 25 rows (excluding header)
+‎
+‎Test 3.2: Admin Filters Registrants Before Export
+‎
+‎Step Action Expected Result
+‎1 Admin filters by tier "VIP" ✅ Only VIP registrants shown
+‎2 Admin exports CSV ✅ CSV only contains VIP registrants
+‎3 Admin filters by date range ✅ CSV contains only registrants in date range
+‎
+‎Test 3.3: Admin Sends Registrant List to Event Host
+‎
+‎Step Action Expected Result
+‎1 Admin navigates to event ✅ Event detail page
+‎2 Admin enters host email address ✅ Valid email format
+‎3 Admin clicks "Send to Host" ✅ Success message: "Registrant list sent to host"
+‎4 Check email (or email log) ✅ Email sent with CSV attachment
+‎5 Email content ✅ Contains: event name, date, number of registrants, download link
+‎
+‎Test 3.4: Admin Sends to Host with Custom Message
+‎
+‎Step Action Expected Result
+‎1 Admin enters custom message ✅ Message field accepts text
+‎2 Admin sends to host ✅ Email includes custom message
+‎3 Host receives email ✅ Contains custom message + registrant list
+‎
+‎---
+‎
+‎4. GLOBAL FEATURE FLAGS — Tests
+‎
+‎Test 4.1: Admin Creates Feature Flag
+‎
+‎Step Action Expected Result
+‎1 Admin calls POST /admin/feature-flags with feature_name ✅ Flag created
+‎2 Check feature_flags table ✅ Record exists, is_active = false
+‎3 Admin calls GET /admin/feature-flags ✅ Flag appears in list
+‎
+‎Test 4.2: Admin Toggles Feature Flag
+‎
+‎Step Action Expected Result
+‎1 Admin calls PATCH /admin/feature-flags/{name} with is_active: true ✅ Flag toggled to true
+‎2 Admin calls PATCH /admin/feature-flags/{name} with is_active: false ✅ Flag toggled to false
+‎3 Check feature_flags table ✅ is_active updated correctly
+‎
+‎Test 4.3: Feature Flag Gates Functionality
+‎
+‎Step Action Expected Result
+‎1 Set exclusive_spin flag = false ✅ Flag false
+‎2 User attempts to access exclusive spin ❌ Feature hidden or returns 403/404
+‎3 Set exclusive_spin flag = true ✅ Flag true
+‎4 User attempts to access exclusive spin ✅ Feature accessible
+‎
+‎Test 4.4: Backend Checks Feature Flag Before Processing
+‎
+‎Step Action Expected Result
+‎1 Set leaderboard_prizes flag = false ✅ Flag false
+‎2 End of month cron runs ✅ No prizes assigned (flag false)
+‎3 Set leaderboard_prizes flag = true ✅ Flag true
+‎4 End of month cron runs ✅ Prizes assigned correctly
+‎
+‎---
+‎
+‎5. MENU ITEM HP MULTIPLIER (1/2x, 2x) — Tests
+‎
+‎Test 5.1: Admin Sets HP Multiplier on Menu Item
+‎
+‎Step Action Expected Result
+‎1 Admin edits menu item via PATCH /menu/items/{id} ✅ Item updated
+‎2 Admin sets hp_multiplier = 2.0 ✅ Multiplier saved
+‎3 Check database: menu_items ✅ hp_multiplier = 2.0
+‎
+‎Test 5.2: User Orders Item with 2x HP Multiplier
+‎
+‎Step Action Expected Result
+‎1 User orders item with hp_multiplier = 2.0 ✅ Order placed
+‎2 Order total = ₦1,000 ✅ HP calculation: ₦1,000 * 0.10 * 2.0 = 200 HP
+‎3 Check HP balance ✅ 200 HP awarded
+‎
+‎Test 5.4: Multiplier Affects Tier Bonus Calculation
+‎
+‎Step Action Expected Result
+‎1 User has tier with 1.15 multiplier ✅ Tier bonus applied
+‎2 Item has hp_multiplier = 2.0 ✅ Combined multiplier: 2.0 * 1.15 = 2.3
+‎3 Order total = ₦1,000 ✅ HP: ₦1,000 * 0.10 * 2.3 = 230 HP
+‎
+‎Test 5.5: Multiplier Does Not Affect Pending Unlock
+‎
+‎Step Action Expected Result
+‎1 User orders item with hp_multiplier = 2.0 ✅ HP earned = 200 HP (ACTIVE)
+‎2 Pending unlock rate = 30% ✅ Unlock: 200 * 0.30 = 60 HP (PENDING → ACTIVE)
+‎3 Check HP balance ✅ 60 HP unlocked from pending
+‎
+‎Test 5.6: Admin Removes Multiplier (Set to 1.0)
+‎
+‎Step Action Expected Result
+‎1 Admin sets hp_multiplier = 1.0 ✅ Multiplier reset to default
+‎2 User orders item ✅ HP calculation normal (no multiplier)
+‎
+‎---
+‎
+‎6. SYSTEM SETTINGS — Tests
+‎
+‎Test 6.1: Admin Updates System Setting
+‎
+‎Step Action Expected Result
+‎1 Admin calls PATCH /admin/settings/{key} with new value ✅ Setting updated
+‎2 Admin calls GET /admin/settings/{key} ✅ New value returned
+‎3 Check database: system_settings ✅ Value updated
+‎
+‎Test 6.2: System Uses New Setting Value Immediately
+‎
+‎Step Action Expected Result
+‎1 Admin sets free_side_credits_validity_days = 90 ✅ Setting updated
+‎2 User earns free side credits ✅ Expiry date = now + 90 days
+‎3 Admin sets free_side_credits_validity_days = 60 ✅ Setting updated
+‎4 User earns free side credits ✅ Expiry date = now + 60 days
+‎
+‎Test 6.3: Fallback to Config.py Default
+‎
+‎Step Action Expected Result
+‎1 Remove free_side_credits_validity_days from DB ✅ Key missing
+‎2 System reads setting ✅ Uses config.py default (60)
+‎

@@ -12,6 +12,31 @@ from datetime import datetime, timezone
 rewards_bp = Blueprint("rewards", __name__)
 
 
+def _is_flash_active(reward: dict, now: datetime) -> bool:
+    """Compute flash availability without making the frontend duplicate rules."""
+    if reward.get("flash_enabled") not in (True, "true", "True", 1, "1"):
+        return False
+    try:
+        if int(reward.get("flash_slots_remaining") or 0) <= 0:
+            return False
+        starts_at = reward.get("flash_starts_at")
+        ends_at = reward.get("flash_ends_at")
+        if not starts_at or not ends_at:
+            return False
+        def parse(value):
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return parse(starts_at) <= now <= parse(ends_at)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _with_flash_status(reward: dict, now: datetime) -> dict:
+    result = dict(reward)
+    result["is_flash_active"] = _is_flash_active(result, now)
+    return result
+
+
 @rewards_bp.route("", methods=["GET"])
 def list_rewards():
     """
@@ -49,7 +74,7 @@ def list_rewards():
             continue
         if expires_at and expires_at < now:
             continue
-        result.append(r)
+        result.append(_with_flash_status(r, datetime.now(timezone.utc)))
     return jsonify(result), 200
 
 
@@ -75,7 +100,7 @@ def get_reward(reward_id):
     reward = db.table("rewards").select("*,hp_tiers(name,slug)").eq("id", reward_id).single().execute()
     if not reward:
         return jsonify({"error": MSG.REWARD_NOT_FOUND}), 404
-    return jsonify(reward), 200
+    return jsonify(_with_flash_status(reward, datetime.now(timezone.utc))), 200
 
 
 @rewards_bp.route("/<reward_id>/redeem", methods=["POST"])

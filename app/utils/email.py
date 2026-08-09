@@ -1,9 +1,9 @@
 """
-Email dispatch via OneSignal. All calls are fire-and-forget.
-Falls back gracefully if OneSignal is not configured.
+Email dispatch via Resend (https://resend.com).
+All calls are fire-and-forget. Falls back gracefully if RESEND_API_KEY is not configured.
 
-OneSignal REST API: POST https://api.onesignal.com/notifications
-Auth: Authorization: Key <ONESIGNAL_API_KEY>
+Resend REST API: POST https://api.resend.com/emails
+Auth: Authorization: Bearer <RESEND_API_KEY>
 """
 
 import os
@@ -14,7 +14,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-ONESIGNAL_BASE = os.environ.get("ONESIGNAL_BASE_URL", "https://api.onesignal.com")
+RESEND_BASE = "https://api.resend.com"
 
 TEMPLATES = {
     "order_confirmed": {
@@ -182,22 +182,53 @@ You can use this list to send birthday wishes, create flyers, or DM them directl
 — {d.get('app_tagline', '')}
 """,
     },
+    "event_tickets_export": {
+        "subject": lambda d: f"Event Registrants — {d.get('event_title', 'Event')}",
+        "body": lambda d: f"""
+Hi {d.get('name', 'there')},
+
+Please find attached the registrant list for {d.get('event_title', 'your event')}.
+
+Total registrants: {d.get('count', 0)}
+
+{d.get('registrant_table', '')}
+
+— {d.get('app_tagline', '')}
+""",
+    },
 }
+
+
+def _resend_api_key() -> str:
+    """Return RESEND_API_KEY from env. Empty string if not configured."""
+    return os.environ.get("RESEND_API_KEY", "")
+
+
+def _build_html(name: str, body_text: str, app_tagline: str) -> str:
+    """Wrap plain-text body in a minimal responsive HTML shell."""
+    body_html = body_text.strip().replace("\n", "<br>")
+    return (
+        f"<html><body style='font-family:sans-serif;max-width:600px;margin:auto;padding:20px'>"
+        f"<p>Hi {name},</p>"
+        f"<p>{body_html}</p>"
+        f"<br><p style='color:#888;font-size:12px'>— {app_tagline}</p>"
+        f"</body></html>"
+    )
 
 
 def send_email(to_email: str, to_name: str, template_key: str, data: dict = None) -> bool:
     """
-    Send a transactional email via OneSignal.
+    Send a transactional email via Resend.
     Returns True on success, False on failure (never raises).
     """
-    app_id = os.environ.get("ONESIGNAL_APP_ID", "")
-    api_key = os.environ.get("ONESIGNAL_API_KEY", "")
-
-    if not app_id or not api_key:
+    api_key = _resend_api_key()
+    if not api_key:
+        logger.debug("send_email: RESEND_API_KEY not configured — skipping email to %s", to_email)
         return False
 
     template = TEMPLATES.get(template_key)
     if not template:
+        logger.warning("send_email: unknown template_key '%s'", template_key)
         return False
 
     data = data or {}
@@ -207,7 +238,7 @@ def send_email(to_email: str, to_name: str, template_key: str, data: dict = None
     data.setdefault("currency", os.environ.get("HP_CURRENCY_NAME", "HP"))
 
     from_email = os.environ.get("EMAIL_FROM", "noreply@holygrills.ng")
-    from_name = os.environ.get("EMAIL_FROM_NAME", "Holy Grills")
+    from_name  = os.environ.get("EMAIL_FROM_NAME", "Holy Grills")
 
     subject_tpl = template["subject"]
     subject = subject_tpl(data) if callable(subject_tpl) else subject_tpl
@@ -216,29 +247,18 @@ def send_email(to_email: str, to_name: str, template_key: str, data: dict = None
 
     # Resolve {platform} and {currency} placeholders
     _app_name = data.get("app_name", os.environ.get("APP_NAME", "Holy Grills"))
-    _currency  = data.get("currency",  os.environ.get("HP_CURRENCY_NAME", "HP"))
-    if isinstance(subject, str) and "{platform}" in subject:
-        subject = subject.replace("{platform}", _app_name)
-    if "{platform}" in body_text:
-        body_text = body_text.replace("{platform}", _app_name)
-    if isinstance(subject, str) and "{currency}" in subject:
-        subject = subject.replace("{currency}", _currency)
-    if "{currency}" in body_text:
-        body_text = body_text.replace("{currency}", _currency)
+    _currency  = data.get("currency", os.environ.get("HP_CURRENCY_NAME", "HP"))
+    if isinstance(subject, str):
+        subject = subject.replace("{platform}", _app_name).replace("{currency}", _currency)
+    body_text = body_text.replace("{platform}", _app_name).replace("{currency}", _currency)
 
-    body_html = body_text.replace("\n", "<br>")
+    html_body = _build_html(to_name or "there", body_text, data.get("app_tagline", ""))
 
     payload = {
-        "app_id": app_id,
-        "include_email_tokens": [to_email],
-        "email_subject": subject,
-        "email_body": (
-            f"<html><body style='font-family:sans-serif;max-width:600px;margin:auto;padding:20px'>"
-            f"<p>{body_html}</p>"
-            f"</body></html>"
-        ),
-        "email_from_name": from_name,
-        "email_from_address": from_email,
+        "from": f"{from_name} <{from_email}>",
+        "to":   [to_email],
+        "subject": subject,
+        "html": html_body,
     }
 
     try:
@@ -247,19 +267,68 @@ def send_email(to_email: str, to_name: str, template_key: str, data: dict = None
         @with_retry(max_attempts=3, backoff=0.5)
         def _post():
             return requests.post(
-                f"{ONESIGNAL_BASE}/notifications",
+                f"{RESEND_BASE}/emails",
                 headers={
-                    "Authorization": f"Key {api_key}",
-                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type":  "application/json",
                 },
                 json=payload,
                 timeout=10,
             )
 
         resp = _post()
-        return resp.status_code in (200, 202)
+        if resp.status_code not in (200, 201):
+            logger.warning("Resend email error %s for %s: %s", resp.status_code, to_email, resp.text[:200])
+            return False
+        return True
     except Exception as e:
         logger.error("Email send failed for %s: %s", to_email, e)
+        return False
+
+
+def send_email_raw(to_email: str, to_name: str, subject: str, html_body: str) -> bool:
+    """
+    Send a raw HTML email via Resend (no template lookup).
+    Used for dynamically assembled bodies (birthday report, event export, etc.).
+    Returns True on success, False on failure (never raises).
+    """
+    api_key = _resend_api_key()
+    if not api_key:
+        logger.debug("send_email_raw: RESEND_API_KEY not configured — skipping email to %s", to_email)
+        return False
+
+    from_email = os.environ.get("EMAIL_FROM", "noreply@holygrills.ng")
+    from_name  = os.environ.get("EMAIL_FROM_NAME", "Holy Grills")
+
+    payload = {
+        "from": f"{from_name} <{from_email}>",
+        "to":   [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+
+    try:
+        from app.utils.retry import with_retry
+
+        @with_retry(max_attempts=3, backoff=0.5)
+        def _post():
+            return requests.post(
+                f"{RESEND_BASE}/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type":  "application/json",
+                },
+                json=payload,
+                timeout=10,
+            )
+
+        resp = _post()
+        if resp.status_code not in (200, 201):
+            logger.warning("Resend raw email error %s for %s: %s", resp.status_code, to_email, resp.text[:200])
+            return False
+        return True
+    except Exception as e:
+        logger.error("Raw email send failed for %s: %s", to_email, e)
         return False
 
 

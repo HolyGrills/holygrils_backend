@@ -186,7 +186,7 @@ def setup_prerequisites():
         "title": "Test Order Challenge", "trigger_type": "orders_count",
         "trigger_value": 1, "hp_awarded": 50, "time_window": "monthly",
     }, admin_t)
-    prereq["challenge_id"] = (d.get("milestone") or d.get("challenge") or d).get("id")
+    prereq["challenge_id"] = (d.get("challenge") or d).get("id")
     print(f"  Challenge: {c} id={prereq['challenge_id']}")
 
     # ── Reward ──
@@ -1439,25 +1439,22 @@ def test_27_challenges():
     c, d = api("GET", "/challenges")
     log(G, "27.1", "List Active Challenges", c==200, c, 200, str(d)[:80])
 
-    c, d = api("GET", "/challenges/badges")
-    log(G, "27.2", "List Badges", c==200, c, 200, str(d)[:80])
-
     c, d = api("GET", "/challenges/my", token=t)
-    log(G, "27.3", "User Milestone Progress", c==200, c, 200, str(d)[:80])
+    log(G, "27.2", "User Challenge Progress", c==200, c, 200, str(d)[:80])
 
     if challenge_id:
         c, d = api("POST", f"/challenges/{challenge_id}/complete", token=t)
-        log(G, "27.4", "Complete Challenge", c in (200,400), c, 200, str(d)[:80])
+        log(G, "27.3", "Complete Challenge", c in (200,400), c, 200, str(d)[:80])
 
         c, d = api("POST", f"/challenges/{challenge_id}/complete", token=t)
-        log(G, "27.5", "Complete Challenge — Already Completed", c==400, c, 400, str(d)[:80])
+        log(G, "27.4", "Complete Challenge — Already Completed", c==400, c, 400, str(d)[:80])
 
         # Admin grant
         if user_ids.get("student2@test.com"):
             c, d = api("POST", f"/challenges/admin/{challenge_id}/grant", {
                 "user_id": user_ids["student2@test.com"]
             }, admin_t)
-            log(G, "27.6", "Grant Milestone Manually (Admin)", c==200, c, 200, str(d)[:60])
+            log(G, "27.5", "Grant Challenge Manually (Admin)", c==200, c, 200, str(d)[:60])
 
 
 def test_28_graduation():

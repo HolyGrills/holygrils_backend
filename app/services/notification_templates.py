@@ -29,7 +29,6 @@ NON_CRITICAL_FALLBACKS: dict = {
     # Spec-defined non-critical fields
     "name":           "there",
     "tier_name":      "your tier",
-    "badge_name":     "badge",
     "streak_count":   "your streak",
     "gift_sender":    "someone",
     "batch_id":       "your batch",
@@ -82,7 +81,6 @@ CRITICAL_FIELDS: frozenset = frozenset({
     "reward_name",
     "discount_pct",
     "lock_date",
-    "milestone_hp",
     # Actual MSG placeholder names that map to critical spec fields
     "pct",          # MSG templates use {pct} for discount percentage
     "unlocked_hp",  # MSG uses {unlocked_hp} in HP_UNLOCKED_TITLE/BODY
@@ -466,12 +464,6 @@ NOTIFICATION_TEMPLATES: dict = {
         "include_name": True,
         "channels":     None,
     },
-    "hp_earned_badge": {
-        "title":        MSG.HP_EARNED_BADGE_TITLE,
-        "body":         MSG.HP_EARNED_BADGE_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
     "hp_earned_social": {
         "title":        MSG.HP_EARNED_SOCIAL_TITLE,
         "body":         MSG.HP_EARNED_SOCIAL_BODY,
@@ -513,12 +505,6 @@ NOTIFICATION_TEMPLATES: dict = {
     "referral_hp_earned": {
         "title":        MSG.REFERRAL_HP_EARNED_TITLE,
         "body":         MSG.REFERRAL_HP_EARNED_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-    "referral_milestone": {
-        "title":        MSG.REFERRAL_MILESTONE_TITLE,
-        "body":         MSG.REFERRAL_MILESTONE_BODY,
         "include_name": True,
         "channels":     None,
     },
@@ -800,32 +786,6 @@ NOTIFICATION_TEMPLATES: dict = {
         "channels":     None,
     },
 
-    # ── Challenges / Gamification ──────────────────────────────────────────────
-    "challenge_complete": {
-        "title":        MSG.CHALLENGE_COMPLETE_TITLE,
-        "body":         MSG.CHALLENGE_COMPLETE_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-    "challenge_progress": {
-        "title":        MSG.CHALLENGE_PROGRESS_TITLE,
-        "body":         MSG.CHALLENGE_PROGRESS_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-    "badge_earned": {
-        "title":        MSG.BADGE_EARNED_TITLE,
-        "body":         MSG.BADGE_EARNED_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-    "milestone_achieved": {
-        "title":        MSG.MILESTONE_ACHIEVED_TITLE,
-        "body":         MSG.MILESTONE_ACHIEVED_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-
     # ── Leaderboard ────────────────────────────────────────────────────────────
     "leaderboard_rank": {
         "title":        MSG.LEADERBOARD_RANK_TITLE,
@@ -864,6 +824,38 @@ NOTIFICATION_TEMPLATES: dict = {
         "channels":     None,
     },
 
+    # ── Phase 3 — Leaderboard Prize ───────────────────────────────────────────
+    "leaderboard_prize": {
+        "title":        MSG.LEADERBOARD_PRIZE_TITLE,
+        "body":         MSG.LEADERBOARD_PRIZE_BODY,
+        "include_name": True,
+        "channels":     None,
+    },
+
+    # ── Phase 3 — Exclusive Spin Win ──────────────────────────────────────────
+    "exclusive_spin_won": {
+        "title":        MSG.EXCLUSIVE_SPIN_WON_TITLE,
+        "body":         MSG.EXCLUSIVE_SPIN_WON_BODY,
+        "include_name": True,
+        "channels":     ["push", "in_app"],   # Prize is shown inline — no email needed
+    },
+
+    # ── Phase 3 — Daily Check-in HP ──────────────────────────────────────────
+    "daily_checkin": {
+        "title":        MSG.DAILY_CHECKIN_TITLE,
+        "body":         MSG.DAILY_CHECKIN_BODY,
+        "include_name": True,
+        "channels":     ["push", "in_app"],   # Lightweight — no email
+    },
+
+    # ── Phase 3 — Admin: New HoF Induction Alert ─────────────────────────────
+    "admin_hof_induction": {
+        "title":        MSG.ADMIN_HOF_INDUCTION_TITLE,
+        "body":         MSG.ADMIN_HOF_INDUCTION_BODY,
+        "include_name": False,   # Admin notification — no name prefix needed
+        "channels":     ["push", "in_app"],
+    },
+
     # ── Order Streak ───────────────────────────────────────────────────────────
     "order_streak": {
         "title":        MSG.ORDER_STREAK_TITLE,
@@ -874,12 +866,6 @@ NOTIFICATION_TEMPLATES: dict = {
     "order_streak_update": {
         "title":        MSG.ORDER_STREAK_TITLE,
         "body":         MSG.ORDER_STREAK_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-    "order_streak_threshold": {
-        "title":        MSG.ORDER_STREAK_THRESHOLD_TITLE,
-        "body":         MSG.ORDER_STREAK_THRESHOLD_BODY,
         "include_name": True,
         "channels":     None,
     },
@@ -911,13 +897,6 @@ NOTIFICATION_TEMPLATES: dict = {
         "include_name": True,
         "channels":     None,
     },
-    "membership_anniversary_badge": {
-        "title":        MSG.ANNIVERSARY_BADGE_TITLE,
-        "body":         MSG.ANNIVERSARY_BADGE_BODY,
-        "include_name": True,
-        "channels":     None,
-    },
-
     # ── Graduation ─────────────────────────────────────────────────────────────
     "graduation_declared": {
         "title":        MSG.GRADUATION_DECLARED_TITLE,

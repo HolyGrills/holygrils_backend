@@ -240,22 +240,11 @@ class MSG:
     HP_PAYMENT_NOT_CONFIRMED     = "Payment not confirmed. Transaction status: {status}"
     HP_PAYMENT_MISMATCH          = "Payment amount mismatch. Expected \u20a6{expected:.0f}, received \u20a6{received:.0f}"
     HP_PAYMENT_VERIFY_FAILED     = "Payment verification failed: {error}"
-    HP_SPIN_INSUFFICIENT         = "Insufficient {currency}. Need {cost} {currency} for extra spins today."
-
-    # ── Challenges ────────────────────────────────────────────────────────────
-    CHALLENGE_NOT_FOUND          = "Challenge not found or inactive"
-    CHALLENGE_ENDED              = "Challenge has ended"
-    CHALLENGE_MAX_REACHED        = "Challenge already completed (max completions reached)"
-    CHALLENGE_HP_EXCEEDS_MAX     = "{currency} reward cannot exceed {max_hp} {currency} per challenge"
-    CHALLENGE_CREATE_FAILED      = "Failed to create challenge: {error}"
-    CHALLENGE_COMPLETE_TITLE     = "Challenge Complete: {title}"
-    CHALLENGE_COMPLETE_BODY      = "You earned {hp} {currency} (pending). Order food to unlock!"
-    CHALLENGE_DEACTIVATED        = "Challenge deactivated"
-
     # ── Riders ────────────────────────────────────────────────────────────────
     RIDER_AVAILABILITY_REQUIRED  = "'is_available' is required"
     RIDER_ORDER_NOT_FOUND        = "Order not found"
     RIDER_NO_PHONE               = "No phone number available"
+    RIDER_NOT_ASSIGNED           = "No rider has been assigned to this order"
     RIDER_EARNINGS_INVALID_PERIOD = "Invalid period. Valid: today, week, month, all"
 
     # ── Gifts ─────────────────────────────────────────────────────────────────
@@ -269,10 +258,6 @@ class MSG:
     # ── Referral signup ───────────────────────────────────────────────────────
     REFERRAL_SIGNUP_TITLE        = "Someone Used Your Referral!"
     REFERRAL_SIGNUP_BODY         = "A new user just signed up with your referral link. They need to place their first order to complete the referral."
-
-    # ── Referral milestone ────────────────────────────────────────────────────
-    REFERRAL_MILESTONE_TITLE     = "Milestone! {count} Referral{plural} Completed 🎉"
-    REFERRAL_MILESTONE_BODY      = "You earned {hp} bonus {currency} for referring {count} friend{plural}!"
 
     # ── Leaderboard ───────────────────────────────────────────────────────────
     LEADERBOARD_RANK_TITLE       = "You Made the Top 10! 🏆"
@@ -305,6 +290,44 @@ class MSG:
     LOGOUT_ALL_DEVICES_OK         = "Signed out from all devices"
 
     # ── Events ────────────────────────────────────────────────────────────────
+    # ── Ticket Tiers ──────────────────────────────────────────────────────────
+    TIER_NOT_FOUND               = "Ticket tier not found"
+    TIER_CAPACITY_EXCEEDED        = "This ticket tier is sold out"
+    TIER_ALREADY_REGISTERED       = "You are already registered for this event"
+    TIER_PRICE_INVALID            = "price_naira and price_hp must be non-negative"
+    TIER_CAPACITY_INVALID_TIER    = "capacity must be a positive integer or null"
+    TIER_NAME_REQUIRED            = "Tier name is required"
+    TIER_DELETE_HAS_SALES         = "Cannot delete a tier with existing ticket sales"
+
+    # ── Daily Check-in ────────────────────────────────────────────────────────
+    CHECKIN_ALREADY_DONE         = "You have already checked in today"
+    CHECKIN_SUCCESS              = "Daily check-in recorded"
+    CHECKIN_HP_AWARDED           = "Daily check-in complete — {hp} {currency} earned"
+
+    # ── Free Sides ────────────────────────────────────────────────────────────
+    FREE_SIDE_NO_CREDITS         = "You have no free side credits"
+    FREE_SIDE_REDEEMED           = "Free side credit redeemed"
+    FREE_SIDE_INVALID_CHOICE     = "Invalid side choice"
+    FREE_SIDE_EXPIRED            = "Your free side credits have expired"
+
+    # ── Exclusive Spin ────────────────────────────────────────────────────────
+    SPIN_NO_CREDITS              = "You have no exclusive spins available"
+    SPIN_INSUFFICIENT_HP         = "Not enough {currency} to purchase an extra spin"
+    SPIN_SUCCESS                 = "You spun and won: {prize}"
+    SPIN_BOUGHT                  = "Extra spin purchased successfully"
+    SPIN_EXPIRED                 = "Your exclusive spin has expired"
+
+    # ── Feature Flags ─────────────────────────────────────────────────────────
+    FEATURE_FLAG_NOT_FOUND       = "Feature flag not found"
+    FEATURE_FLAG_UPDATED         = "Feature flag updated"
+    FEATURE_FLAG_NAME_REQUIRED   = "feature_name is required"
+
+    # ── Leaderboard Prizes / Hall of Fame ──────────────────────────────────────
+    LEADERBOARD_PRIZE_FULFILLED  = "Reward marked as fulfilled"
+    HOF_REWARD_FULFILLED         = "Hall of Fame reward fulfilled"
+    HOF_REWARD_NOT_FOUND         = "Hall of Fame reward record not found"
+    LEADERBOARD_REWARD_NOT_FOUND = "Leaderboard reward record not found"
+
     EVENT_NOT_FOUND              = "Event not found"
 
     # ── Marketplace ──────────────────────────────────────────────────────────
@@ -548,10 +571,6 @@ class MSG:
     HP_TRANSFER_RECEIVED_TITLE   = "You received {amount} {currency}! 🎉"
     HP_TRANSFER_RECEIVED_BODY    = "{sender} sent you {amount} {currency}."
 
-    # ── Social follow milestone ───────────────────────────────────────────────
-    SOCIAL_FOLLOW_NOT_CONFIGURED = "Social follow milestone not configured"
-    SOCIAL_FOLLOW_ALREADY_DONE   = "Social follow already recorded"
-
     # ── Graduation ────────────────────────────────────────────────────────────
     GRADUATION_PROFILE_NOT_FOUND = "Profile not found"
     GRADUATION_ALREADY_CLAIMED   = "Graduation {currency} has already been claimed"
@@ -572,7 +591,17 @@ class MSG:
 
     # ── Hall of Fame ──────────────────────────────────────────────────────────
     HALL_OF_FAME_TITLE           = "🏛️ Hall of Fame!"
-    HALL_OF_FAME_BODY            = "Congratulations! You've reached the top 4 in four different months — you've been inducted into the {platform} Hall of Fame!"
+    HALL_OF_FAME_BODY            = "Congratulations! You've reached the top 3 in three different months — you've been inducted into the {platform} Hall of Fame!"
+
+    # ── Phase 3 notification titles/bodies ────────────────────────────────────
+    LEADERBOARD_PRIZE_TITLE      = "🎁 Your Leaderboard Prize is Ready!"
+    LEADERBOARD_PRIZE_BODY       = "You ranked #{rank} in {period}! You've earned: {prize}. Your reward is being processed."
+    EXCLUSIVE_SPIN_WON_TITLE     = "🎡 Spin Result!"
+    EXCLUSIVE_SPIN_WON_BODY      = "You spun the exclusive wheel and won: {prize}! Check the app for details."
+    DAILY_CHECKIN_TITLE          = "✅ Daily Check-in!"
+    DAILY_CHECKIN_BODY           = "You've checked in for today and earned {hp} {currency}. Keep the streak going!"
+    ADMIN_HOF_INDUCTION_TITLE    = "🏅 New Hall of Fame Inductee"
+    ADMIN_HOF_INDUCTION_BODY     = "{inducted_name} has been inducted into the Hall of Fame! Fulfil their reward box when ready."
 
     # ── Membership Anniversary ────────────────────────────────────────────────
     ANNIVERSARY_FALLBACK_NAME    = "Valued Member"
@@ -598,17 +627,11 @@ class MSG:
     MARKETPLACE_PURCHASE_STATUS_TITLE = "🛒 Purchase Update"
     MARKETPLACE_PURCHASE_STATUS_BODY  = "Your {title} order is now marked as {status}."
 
-    # ── Milestone / Badge notifications ───────────────────────────────────────
-    MILESTONE_BADGE_TITLE        = "Badge Unlocked! 🏆"
-    MILESTONE_CHALLENGE_TITLE    = "Challenge Unlocked! 🏆"
-    MILESTONE_HP_SUFFIX          = " — {hp} {currency} earned!"
-
     # ── Validation — generic field-level ─────────────────────────────────────
     FIELD_MUST_BE_INTEGER        = "{field} must be an integer"
     FIELD_MUST_BE_NONEMPTY_STR   = "{field} must be a non-empty string"
     MARKETPLACE_STATUS_INVALID   = "'status' must be one of: active, rejected, archived"
     MARKETPLACE_APPROVE_REJECT   = "'status' must be 'approved' or 'rejected'"
-    CHALLENGE_TIME_WINDOW_INVALID = "time_window must be 'weekly', 'monthly', or omitted (badge)"
 
     # ── Wallet / Payment errors ───────────────────────────────────────────────
     ORDER_WALLET_INSUFFICIENT    = "Insufficient wallet balance: need ₦{need:.2f}"
@@ -660,13 +683,11 @@ class MSG:
     HP_EARNED_WELCOME_BODY     = "You earned {hp} {currency} for your first order delivery. Welcome to {platform}, {name}!"
     HP_EARNED_TOPUP_TITLE      = "+{hp} {currency} Earned!"
     HP_EARNED_TOPUP_BODY       = "You earned {hp} {currency} for topping up your wallet, {name}."
-    HP_EARNED_CHALLENGE_BODY   = "You completed a challenge and earned {hp} {currency}, {name}!"
-    HP_EARNED_BADGE_TITLE      = "+{hp} {currency} for Your Badge!"
-    HP_EARNED_BADGE_BODY       = "You earned {hp} {currency} for unlocking a badge, {name}!"
     HP_EARNED_ANNIVERSARY_BODY = "Membership anniversary bonus — {hp} {currency} added to your account, {name}!"
     HP_EARNED_SOCIAL_TITLE     = "+{hp} {currency} for Following Us!"
     HP_EARNED_SOCIAL_BODY      = "Thanks for following us on {platform}, {name}! {hp} {currency} has been added to your account."
     HP_EARNED_LOGIN_BODY       = "You earned {hp} {currency} for your login streak, {name}. Keep checking in!"
+    HP_EARNED_CHALLENGE_BODY   = "You earned {hp} {currency} for completing a challenge, {name}!"
 
     # HP Gift (personalized)
     HP_GIFT_RECEIVED_TITLE     = "\U0001f381 {currency} Gift Received!"
@@ -734,14 +755,6 @@ class MSG:
     KITCHEN_BATCH_TITLE            = "Batch Ready"
     KITCHEN_BATCH_BODY             = "Batch {batch_id} is ready for rider pickup."
 
-    # Challenges / Gamification (personalized)
-    CHALLENGE_PROGRESS_TITLE       = "Challenge Progress \U0001f4aa"
-    CHALLENGE_PROGRESS_BODY        = "Great work, {name}! Keep going to complete the challenge and earn {currency}."
-    BADGE_EARNED_TITLE             = "Badge Unlocked! \U0001f3c6"
-    BADGE_EARNED_BODY              = "You unlocked the {badge_name} badge, {name}!"
-    MILESTONE_ACHIEVED_TITLE       = "Milestone Reached! \U0001f389"
-    MILESTONE_ACHIEVED_BODY        = "Congratulations, {name}! You've hit a new milestone."
-
     # Leaderboard (personalized)
     LEADERBOARD_TOP4_TITLE         = "Top 4! \U0001f3c5"
     LEADERBOARD_TOP4_BODY          = "Incredible, {name}! You finished in the top 4 on the {period} leaderboard. You're in contention for the Hall of Fame!"
@@ -753,12 +766,6 @@ class MSG:
     # Order streak (personalized)
     ORDER_STREAK_BROKEN_TITLE      = "Order Streak Broken \U0001f494"
     ORDER_STREAK_BROKEN_BODY       = "Your order streak has ended, {name}. Start a new one today!"
-    ORDER_STREAK_THRESHOLD_TITLE   = "Order Streak Milestone! \U0001f525"
-    ORDER_STREAK_THRESHOLD_BODY    = "You've hit a new order streak milestone, {name}. Keep it up!"
-
-    # Membership anniversary (personalized)
-    ANNIVERSARY_BADGE_TITLE        = "Anniversary Badge Unlocked! \U0001f389"
-    ANNIVERSARY_BADGE_BODY         = "Happy {months}-month anniversary, {name}! You've unlocked a special badge."
 
     # Graduation (personalized)
     GRADUATION_DECLARED_TITLE      = "\U0001f393 Graduation Declared!"

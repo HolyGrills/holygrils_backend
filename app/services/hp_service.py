@@ -148,13 +148,14 @@ def get_hp_balance(user_id: str) -> dict:
 def _get_hp_multiplier() -> float:
     """
     Read the active HP earn multiplier from system_settings.
-    Returns 1.0 if disabled or expired.
+    Only the supported 2x event is accepted. Returns 1.0 if disabled,
+    expired, or if a stale/invalid value (including 0.5) is found.
     """
     try:
         db = get_db()
         m_row = db.table("system_settings").select("value").eq("key", "hp_multiplier").single().execute()
         multiplier = float((m_row or {}).get("value", "1") or "1")
-        if multiplier <= 1.0:
+        if multiplier != 2.0:
             return 1.0
         # Check expiry
         exp_row = db.table("system_settings").select("value").eq("key", "multiplier_expires_at").single().execute()
@@ -168,7 +169,13 @@ def _get_hp_multiplier() -> float:
         return 1.0
 
 
-def award_food_order_hp(user_id: str, order_id: str, order_total: float, tier_slug: str = "ember") -> dict:
+def award_food_order_hp(
+    user_id: str,
+    order_id: str,
+    order_total: float,
+    tier_slug: str = "ember",
+    order_items: list | None = None,
+) -> dict:
     """
     Award HP for a completed food order.
     ALL food HP goes to ACTIVE balance.
@@ -178,19 +185,38 @@ def award_food_order_hp(user_id: str, order_id: str, order_total: float, tier_sl
     Returns: base_hp, tier_bonus_hp, total_hp, unlocked_pending_hp
     """
     config = current_app.config
-    base_hp = int(order_total * config["HP_PER_NAIRA_FOOD"])
-
     tier_multiplier = config.get("TIER_MULTIPLIERS", {}).get(tier_slug.lower(), 1.0)
-    tier_bonus_hp = round(base_hp * (tier_multiplier - 1.0))
-
-    # Apply system-wide HP multiplier event (does NOT affect tier bonus calculation)
-    event_multiplier = _get_hp_multiplier()
-    if event_multiplier > 1.0:
-        base_hp_multiplied = round(base_hp * event_multiplier)
+    if order_items:
+        base_hp = 0
+        multiplied_base_hp = 0
+        total_hp = 0
+        for item in order_items:
+            if item.get("is_addon") or not item.get("price_snapshot"):
+                continue
+            line_base_hp = int(
+                float(item.get("price_snapshot") or 0)
+                * int(item.get("quantity") or 1)
+                * config["HP_PER_NAIRA_FOOD"]
+            )
+            base_hp += line_base_hp
+            try:
+                item_multiplier = float(item.get("hp_multiplier_snapshot") or 1.0)
+            except (TypeError, ValueError):
+                item_multiplier = 1.0
+            if item_multiplier not in (0.5, 1.0, 2.0):
+                item_multiplier = 1.0
+            multiplied_line_hp = round(line_base_hp * item_multiplier)
+            multiplied_base_hp += multiplied_line_hp
+            total_hp += round(multiplied_line_hp * tier_multiplier)
+        tier_bonus_hp = total_hp - multiplied_base_hp
+        event_multiplier = 1.0
     else:
-        base_hp_multiplied = base_hp
-
-    total_hp = base_hp_multiplied + tier_bonus_hp
+        # Legacy callers without line snapshots retain the historical
+        # order-level behavior until all delivery paths pass order_items.
+        base_hp = int(order_total * config["HP_PER_NAIRA_FOOD"])
+        tier_bonus_hp = round(base_hp * (tier_multiplier - 1.0))
+        event_multiplier = _get_hp_multiplier()
+        total_hp = round(base_hp * event_multiplier) + tier_bonus_hp
 
     if total_hp > 0:
         _record_hp_transaction(
@@ -202,7 +228,8 @@ def award_food_order_hp(user_id: str, order_id: str, order_total: float, tier_sl
             source_type="food",
             notes=(
                 f"Food order HP: {base_hp} base"
-                + (f" ×{event_multiplier} multiplier" if event_multiplier > 1.0 else "")
+                + (" × per-item multiplier" if order_items else
+                   (f" ×{event_multiplier} multiplier" if event_multiplier > 1.0 else ""))
                 + f" + {tier_bonus_hp} tier bonus ({tier_slug})"
             ),
             status="active",

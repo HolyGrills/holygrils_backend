@@ -115,6 +115,15 @@ def _daily_item_counts(db):
 
 def _enrich_item(item, counts, at_capacity):
     """Attach is_sold_out and daily_remaining fields to an item dict (mutates)."""
+    multiplier = float(item.get("hp_multiplier") or 1.0)
+    item["hp_multiplier"] = multiplier
+    base_hp = item.get("hp_earn_value") or item.get("hp_earn") or 0
+    item["hp_earn_preview"] = round(float(base_hp) * multiplier)
+    item["hp_multiplier_badge"] = (
+        "2× HP" if multiplier == 2.0 else
+        "½ HP" if multiplier == 0.5 else
+        f"{multiplier:g}× HP" if multiplier != 1.0 else None
+    )
     daily_limit = item.get("daily_limit")
     count = counts.get(item.get("id"), 0)
     if at_capacity:
@@ -128,6 +137,72 @@ def _enrich_item(item, counts, at_capacity):
         item["daily_remaining"] = None
         item["is_sold_out"] = False
     return item
+
+
+def _review_stats(db, item_ids):
+    """Fetch one SQL-aggregated review summary for the requested menu items."""
+    if not item_ids:
+        return {}
+    try:
+        rows = db.rpc("get_menu_item_review_stats", {
+            "p_item_ids": item_ids,
+        }) or []
+        if isinstance(rows, dict):
+            rows = [rows]
+        return {
+            row["menu_item_id"]: {
+                "avg_rating": float(row.get("avg_rating") or 0),
+                "review_count": int(row.get("review_count") or 0),
+            }
+            for row in rows
+            if row.get("menu_item_id")
+        }
+    except Exception:
+        # The migration is applied before production uses this endpoint. Keep
+        # older development databases readable while they are being upgraded.
+        rows = (
+            db.table("order_items")
+            .select("menu_item_id,order_id")
+            .in_("menu_item_id", item_ids)
+            .execute()
+        ) or []
+        order_ids = list({r["order_id"] for r in rows if r.get("order_id")})
+        if not order_ids:
+            return {}
+        delivered = (
+            db.table("orders").select("id").in_("id", order_ids)
+            .eq("status", "delivered").execute()
+        ) or []
+        delivered_ids = {r["id"] for r in delivered}
+        reviews = (
+            db.table("order_reviews").select("id,order_id,rating")
+            .in_("order_id", list(delivered_ids)).not_.is_("rating", "null")
+            .execute()
+        ) if delivered_ids else []
+        review_by_order = {}
+        for review in reviews or []:
+            review_by_order.setdefault(review["order_id"], []).append(review)
+        stats = {}
+        for row in rows:
+            for review in review_by_order.get(row.get("order_id"), []):
+                bucket = stats.setdefault(row["menu_item_id"], [])
+                if review.get("rating") is not None:
+                    bucket.append((review["id"], float(review["rating"])))
+        return {
+            item_id: {
+                "avg_rating": round(sum(rating for _, rating in values) / len(values), 1),
+                "review_count": len({review_id for review_id, _ in values}),
+            }
+            for item_id, values in stats.items() if values
+        }
+
+
+def _attach_review_stats(items, stats):
+    for item in items:
+        summary = stats.get(item.get("id"), {})
+        item["avg_rating"] = float(summary.get("avg_rating") or 0)
+        item["review_count"] = int(summary.get("review_count") or 0)
+    return items
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -336,6 +411,7 @@ def list_items():
 
     capacity, orders_today, at_capacity = _kitchen_stats(db)
     counts = _daily_item_counts(db)
+    _attach_review_stats(items, _review_stats(db, [item["id"] for item in items]))
     enriched = [_enrich_item(item, counts, at_capacity) for item in items]
 
     return jsonify({
@@ -367,14 +443,24 @@ def get_item(item_id):
         description: Not found
     """
     db = get_db()
-    item = (
-        db.table("menu_items")
-        .select("*,menu_categories(name,slug)")
-        .eq("id", item_id)
-        .is_("deleted_at", "null")
-        .single()
-        .execute()
-    )
+    try:
+        item = (
+            db.table("menu_items")
+            .select("*,menu_categories(name,slug)")
+            .eq("id", item_id)
+            .is_("deleted_at", "null")
+            .single()
+            .execute()
+        )
+    except Exception:
+        item = (
+            db.table("menu_items")
+            .select("*,menu_categories(name,slug)")
+            .eq("id", item_id)
+            .is_("deleted_at", "null")
+            .single()
+            .execute()
+        )
     if not item:
         return jsonify({"error": MSG.MENU_ITEM_NOT_FOUND}), 404
 
@@ -399,6 +485,7 @@ def get_item(item_id):
     capacity, _, at_capacity = _kitchen_stats(db)
     counts = _daily_item_counts(db)
     _enrich_item(item, counts, at_capacity)
+    _attach_review_stats([item], _review_stats(db, [item_id]))
 
     return jsonify(item), 200
 
@@ -640,6 +727,13 @@ def create_item():
             return jsonify({"error": f"'{f}' is required"}), 400
 
     data["is_available"] = data.get("is_available", True)
+    if "hp_multiplier" in data:
+        try:
+            data["hp_multiplier"] = float(data["hp_multiplier"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "hp_multiplier must be 0.5, 1.0, or 2.0"}), 400
+        if data["hp_multiplier"] not in {0.5, 1.0, 2.0}:
+            return jsonify({"error": "hp_multiplier must be 0.5, 1.0, or 2.0"}), 400
     import re as _re, uuid as _uuid
     if not data.get("slug"):
         base = _re.sub(r"[^a-z0-9]+", "-", data["name"].lower()).strip("-")[:50]
@@ -648,6 +742,7 @@ def create_item():
     MENU_ITEM_COLUMNS = {
         "name", "slug", "category_id", "price", "hp_earn_value", "description",
         "tags", "daily_limit", "is_available", "image_url", "is_featured",
+        "hp_multiplier",
     }
     safe = {k: v for k, v in data.items() if k in MENU_ITEM_COLUMNS}
     try:
@@ -689,6 +784,7 @@ def update_item(item_id):
     MENU_ITEM_UPDATE_COLUMNS = {
         "name", "slug", "category_id", "price", "hp_earn_value", "description",
         "tags", "daily_limit", "is_available", "image_url", "is_featured",
+        "hp_multiplier",
     }
     db = get_db()
     data = request.get_json(force=True)
@@ -701,6 +797,13 @@ def update_item(item_id):
         .execute()
     ) or {}
     safe_data = {k: v for k, v in data.items() if k in MENU_ITEM_UPDATE_COLUMNS}
+    if "hp_multiplier" in safe_data:
+        try:
+            safe_data["hp_multiplier"] = float(safe_data["hp_multiplier"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "hp_multiplier must be 0.5, 1.0, or 2.0"}), 400
+        if safe_data["hp_multiplier"] not in {0.5, 1.0, 2.0}:
+            return jsonify({"error": "hp_multiplier must be 0.5, 1.0, or 2.0"}), 400
     safe_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = db.table("menu_items").eq("id", item_id).update(safe_data)
     data = safe_data  # use safe_data for audit below
@@ -971,14 +1074,47 @@ def update_variation_option(item_id, group_id, option_id):
     Update a variation option (admin only).
     ---
     tags: [Menu]
+    parameters:
+      - in: path
+        name: item_id
+        type: string
+        required: true
+      - in: path
+        name: group_id
+        type: string
+        required: true
+      - in: path
+        name: option_id
+        type: string
+        required: true
+      - in: body
+        name: body
+        schema:
+          properties:
+            name: {type: string}
+            price_delta: {type: number}
+            is_available: {type: boolean}
+            sort_order: {type: integer}
     responses:
       200:
         description: Option updated
+      404:
+        description: Not found
     """
     db = get_db()
     data = request.get_json(force=True)
     allowed = {"name", "price_delta", "is_available", "sort_order"}
     update = {k: v for k, v in data.items() if k in allowed}
+    existing = (
+        db.table("menu_item_variation_options")
+        .select("id")
+        .eq("id", option_id)
+        .eq("variation_group_id", group_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        return jsonify({"error": "Variation option not found"}), 404
     result = (
         db.table("menu_item_variation_options")
         .eq("id", option_id)
@@ -986,6 +1122,86 @@ def update_variation_option(item_id, group_id, option_id):
         .update(update)
     )
     return jsonify(result[0] if isinstance(result, list) else result), 200
+
+
+@menu_bp.route("/items/<item_id>/variation-groups/<group_id>/options/<option_id>", methods=["DELETE"])
+@require_role("admin")
+def delete_variation_option(item_id, group_id, option_id):
+    """
+    Delete a variation option (admin only).
+    ---
+    tags: [Menu]
+    parameters:
+      - in: path
+        name: item_id
+        type: string
+        required: true
+      - in: path
+        name: group_id
+        type: string
+        required: true
+      - in: path
+        name: option_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Option deleted
+      404:
+        description: Not found
+    """
+    db = get_db()
+    existing = (
+        db.table("menu_item_variation_options")
+        .select("id")
+        .eq("id", option_id)
+        .eq("variation_group_id", group_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        return jsonify({"error": "Variation option not found"}), 404
+    db.table("menu_item_variation_options").eq("id", option_id).delete()
+    return jsonify({"message": "Variation option deleted"}), 200
+
+
+@menu_bp.route("/items/<item_id>/variation-groups/<group_id>", methods=["DELETE"])
+@require_role("admin")
+def delete_variation_group(item_id, group_id):
+    """
+    Delete a variation group and all its options (admin only).
+    ---
+    tags: [Menu]
+    parameters:
+      - in: path
+        name: item_id
+        type: string
+        required: true
+      - in: path
+        name: group_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Group deleted
+      404:
+        description: Not found
+    """
+    db = get_db()
+    existing = (
+        db.table("menu_item_variation_groups")
+        .select("id")
+        .eq("id", group_id)
+        .eq("menu_item_id", item_id)
+        .single()
+        .execute()
+    )
+    if not existing:
+        return jsonify({"error": "Variation group not found"}), 404
+    # Cascade delete options first
+    db.table("menu_item_variation_options").eq("variation_group_id", group_id).delete()
+    db.table("menu_item_variation_groups").eq("id", group_id).delete()
+    return jsonify({"message": "Variation group and all options deleted"}), 200
 
 
 # ─────────────────────────────────────────────────────────────────────────────

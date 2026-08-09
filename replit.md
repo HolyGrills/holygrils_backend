@@ -1,92 +1,93 @@
 # Holy Grills Backend API
 
-Flask REST API powering the Holy Grills student food-ordering and loyalty-points (HP) platform built for FUTA.
+## Project Overview
 
-## Stack
+**Holy Grills** is a student-focused food ordering and loyalty-points (HP — Holy Points) platform built for FUTA. This is the Flask REST API backend.
+
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Framework | Flask 3.x |
 | Database | Supabase (PostgreSQL via REST API) |
 | Auth | Supabase Auth + custom JWT middleware |
-| Payments | Paystack + Flutterwave |
-| Notifications | OneSignal (push + email) |
+| Payments | Paystack (card + virtual accounts) |
+| Email | Resend (transactional email) |
+| Push Notifications | OneSignal |
 | Background Jobs | Celery + Redis |
 | API Docs | Flasgger (Swagger UI at `/api/docs/`) |
 
-## Running the app
-
-The workflow `Start application` runs `python run.py`, serving on port 5000.
-
-To also start the Celery worker for background jobs (birthday HP, leaderboard resets, etc.):
+## How to Run
 
 ```bash
-celery -A app.tasks.celery_app worker --loglevel=info
+python run.py
 ```
 
-## API Documentation
+The app starts on port 5000. Swagger UI available at `/api/docs/`.
 
-Swagger UI is available at `/api/docs/` once the server is running.
+## Key Files
 
-Health check: `GET /api/health`
+| File | Purpose |
+|------|---------|
+| `run.py` | Entry point |
+| `app/__init__.py` | App factory — all blueprints registered here |
+| `app/config.py` | All config from environment variables |
+| `app/db.py` | Supabase REST client |
+| `app/messages.py` | All user-facing copy (edit here for text changes) |
+| `FRONTEND_INTEGRATION.md` | Complete API guide — every endpoint, all user flows |
+| `ENV_CONFIGURATION.md` | Full environment variable reference |
+| `migrations/run10_new_features.sql` | Latest DB schema migration (Phase 3) |
+| `migrations/20260808_remove_badges_daily_spin_and_paid_exclusive.sql` | Disable removed badge/challenge and paid-spin features |
 
-## Environment variables / secrets
+## Running Tests
 
-All secrets are configured via Replit Secrets. Key ones:
+```bash
+# Unit tests (fast, no live server required)
+python -m pytest tests/ -v
 
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` — database + auth
-- `JWT_SECRET` / `SUPABASE_JWT_SECRET` — JWT signing
-- `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`, `PAYSTACK_WEBHOOK_SECRET` — payments
-- `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` — background jobs
-- `SECRET_KEY` — Flask session secret
+# Full integration test suite (requires running server + live Supabase)
+python test_all.py
 
-> **Note:** `REDIS_URL` must point to a publicly reachable Redis instance (not a Railway-internal hostname) for Celery background jobs to work on Replit.
-
-## Project structure
-
-```
-app/
-  __init__.py       # App factory, blueprint registration
-  config.py         # All config (loaded from env vars)
-  db.py             # SupabaseClient (HTTP REST wrapper)
-  routes/           # One blueprint per feature area
-  services/         # Business logic
-  tasks/            # Celery tasks
-  middleware/       # Auth + rate-limit middleware
-  utils/            # Logging, helpers
-migrations/
-  schema.sql        # Full database schema
-scripts/
-  seed.py           # Seed the database via REST API
-run.py              # Entry point
+# Phase 3 feature tests
+python -m pytest tests/test_phase3_features.py -v
 ```
 
-## Database migrations
+## Required Secrets (Replit Secrets panel)
 
-Migrations that require running in the **Supabase SQL Editor** (service-role cannot CREATE TABLE via REST):
+| Secret | Description |
+|--------|-------------|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side DB access key |
+| `SUPABASE_ANON_KEY` | Public anon key |
+| `JWT_SECRET` | JWT signing secret (= Supabase JWT secret) |
+| `SECRET_KEY` | Flask session secret |
+| `RESEND_API_KEY` | Resend transactional email API key |
+| `REDIS_URL` | Redis connection URL (for Celery) |
+| `CELERY_BROKER_URL` | Celery broker (defaults to REDIS_URL) |
+| `CELERY_RESULT_BACKEND` | Celery result backend (defaults to REDIS_URL) |
 
-| File | What it does |
-|------|-------------|
-| `migrations/run9_departments.sql` | Creates `departments` table + seeds FUTA departments, adds `department_id` FK to `profiles` |
+## Optional Secrets
 
-## Brand name / personalisation
-All user-facing strings use `{platform}` as a placeholder instead of hardcoding "Holy Grills". Both `notification_service.send_notification()` and `email.send_email()` resolve `{platform}` → `APP_NAME` env var at send time. Email footers use `APP_TAGLINE`. Set these in Replit Secrets to rebrand without code changes.
+| Secret | Default | Description |
+|--------|---------|-------------|
+| `WELCOME_BONUS_HP` | 50 | HP on first delivered order |
+| `BIRTHDAY_HP` | 150 | HP on birthday |
+| `REFERRAL_HP` | 75 | HP per completed referral |
+| `REVIEW_HP` | 20 | HP for leaving a review |
+| `EVENT_CHECKIN_HP` | 40 | HP for event check-in |
+| `WALLET_TOPUP_HP` | 50 | HP for wallet top-up ≥ ₦3000 |
+| `SOCIAL_SHARE_HP` | 25 | HP for social share |
+| `SIGNUP_BONUS_HP` | 0 | HP on account creation |
 
-## API additions
+## User Preferences
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/departments` | Public — list active departments (used in registration dropdown) |
-| `GET /api/departments?grouped=true` | Grouped by faculty |
-| `GET /api/departments/faculties` | Distinct faculty list |
-| `POST /api/admin/departments` | Admin — create department |
-| `PATCH /api/admin/departments/<id>` | Admin — update department |
-| `DELETE /api/admin/departments/<id>` | Admin — deactivate department |
-| `POST /api/admin/departments/<id>/restore` | Admin — reactivate department |
-
-Registration (`POST /api/auth/register`) and profile update (`PATCH /api/auth/profile`) now accept `department` and `academic_level` fields, which map directly to `profiles.department` and `profiles.academic_level` — the columns used by admin blast filters.
-
-## User preferences
-
-- Keep the existing project structure — do not restructure or migrate it.
-- Database is truth source — every code change must match live Supabase schema, no assumptions.
+- Keep existing project structure and naming conventions
+- All user-facing strings go in `app/messages.py` — never hardcode copy in routes
+- All business logic goes in `app/services/` — routes should be thin
+- Use `get_logger(__name__)` from `app.utils.logger` for all logging
+- Use `with_retry` from `app.utils.retry` for all external API calls
+- Feature flags in `feature_flags` DB table control every major feature — no hardcoded on/off switches
+- Email uses Resend (not OneSignal) — OneSignal is push-only
+- Badges, milestones, and challenge rewards are retired; do not reintroduce their routes or award services
+- Exclusive spins are leaderboard-winner rewards only; they cannot be purchased with HP
+- Menu HP multiplier supports only 1x (off) or 2x (active)

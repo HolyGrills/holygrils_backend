@@ -22,7 +22,6 @@ from app.routes.admin import admin_bp
 from app.routes.kitchen import kitchen_bp
 from app.routes.riders import riders_bp
 from app.routes.leaderboard import leaderboard_bp
-from app.routes.challenges import challenges_bp
 from app.routes.webhooks import webhooks_bp
 from app.routes.storefront import storefront_bp
 from app.routes.analytics import analytics_bp
@@ -34,6 +33,11 @@ from app.routes.delivery import delivery_bp
 from app.routes.graduation import graduation_bp
 from app.routes.departments import departments_bp, admin_departments_bp
 from app.routes.academic_levels import academic_levels_bp, admin_academic_levels_bp
+from app.routes.daily_checkin import checkin_bp
+from app.routes.free_sides import free_sides_bp
+from app.routes.exclusive_spin import exclusive_spin_bp
+from app.routes.admin_feature_flags import admin_flags_bp
+from app.routes.uploads import uploads_bp
 
 
 def create_app(config_class=Config):
@@ -96,7 +100,6 @@ def create_app(config_class=Config):
     app.register_blueprint(kitchen_bp, url_prefix="/api/kitchen")
     app.register_blueprint(riders_bp, url_prefix="/api/riders")
     app.register_blueprint(leaderboard_bp, url_prefix="/api/leaderboard")
-    app.register_blueprint(challenges_bp, url_prefix="/api/challenges")
     app.register_blueprint(webhooks_bp, url_prefix="/api/webhooks")
     app.register_blueprint(storefront_bp, url_prefix="/api/storefront")
     app.register_blueprint(analytics_bp, url_prefix="/api/analytics")
@@ -110,6 +113,11 @@ def create_app(config_class=Config):
     app.register_blueprint(admin_departments_bp, url_prefix="/api/admin")
     app.register_blueprint(academic_levels_bp, url_prefix="/api/academic-levels")
     app.register_blueprint(admin_academic_levels_bp, url_prefix="/api/admin")
+    app.register_blueprint(checkin_bp, url_prefix="/api/checkin")
+    app.register_blueprint(free_sides_bp, url_prefix="/api/free-sides")
+    app.register_blueprint(exclusive_spin_bp, url_prefix="/api/exclusive-spin")
+    app.register_blueprint(admin_flags_bp, url_prefix="/api/admin")
+    app.register_blueprint(uploads_bp, url_prefix="/api/upload")
     app.register_blueprint(health_bp, url_prefix="/api")
 
     _logger = get_logger("holy_grills.app")

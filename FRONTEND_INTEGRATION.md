@@ -1,78 +1,276 @@
-# Holy Grills — Frontend Integration Guide
+# Holy Grills — Complete API Frontend Integration Guide
 
-> Version: 1.0 | Last updated: July 2026  
-> Backend: Flask REST API on port 5000 | Database: Supabase (PostgREST) | Payments: Paystack
+> **Version:** 2.0 | **Last updated:** August 2026
+> **Stack:** Flask 3.x · Supabase · Paystack · Resend · OneSignal (push only)
+> **Base URL (dev):** `http://localhost:5000/api`
+> **Base URL (prod):** `https://<your-domain>/api`
+> **API Docs (Swagger UI):** `/api/docs/`
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#1-quick-start)
+2. [Email Configuration (Resend)](#2-email-configuration-resend)
+3. [Notification Blasts](#3-notification-blasts)
+4. [Feature Flags — Flip Any Feature](#4-feature-flags--flip-any-feature)
+5. [Authentication](#5-authentication)
+6. [Menu — Categories, Items, Variations & Add-Ons](#6-menu)
+7. [Cart](#7-cart)
+8. [Saved Items](#8-saved-items)
+9. [Orders](#9-orders)
+10. [HP Economy (Holy Points)](#10-hp-economy)
+11. [Wallet](#11-wallet)
+12. [Rewards](#12-rewards)
+13. [Marketplace](#13-marketplace)
+14. [Events](#14-events)
+15. [Referrals](#15-referrals)
+16. [Notifications](#16-notifications)
+17. [Admin Panel](#17-admin-panel)
+18. [Kitchen](#18-kitchen)
+19. [Riders](#19-riders)
+20. [Leaderboard, Hall of Fame & Prizes](#20-leaderboard)
+21. [Challenges & Badges](#21-challenges--badges)
+22. [Daily Check-In](#22-daily-check-in)
+23. [Free Side Credits](#23-free-side-credits)
+24. [Exclusive Spin](#24-exclusive-spin)
+25. [Storefront](#25-storefront)
+26. [Analytics](#26-analytics)
+27. [Order Locks](#27-order-locks)
+28. [Delivery Locations](#28-delivery-locations)
+29. [Graduation](#29-graduation)
+30. [Departments](#30-departments)
+31. [Academic Levels](#31-academic-levels)
+32. [Admin Gifts & System Settings](#32-admin-gifts--system-settings)
+33. [Webhooks](#33-webhooks)
+34. [Health Check](#34-health-check)
+35. [User Flow Guides](#35-user-flow-guides)
+    - 35a. Guest Order Flow
+    - 35b. Authenticated Student Flow
+    - 35c. Admin Flow
+    - 35d. Kitchen Flow
+    - 35e. Rider Flow
 
 ---
 
 ## 1. Quick Start
 
-### Base URL
-```
-Development:  http://localhost:5000/api
-Production:   https://<your-domain>/api
-```
-
 ### Required Headers
+
 ```http
 Content-Type: application/json
-Authorization: Bearer <access_token>      # for protected endpoints
+Authorization: Bearer <access_token>   # for all protected endpoints
 ```
 
-### Example Request
-```javascript
-const res = await fetch(`${BASE_URL}/auth/me`, {
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${accessToken}`,
-  }
-});
-const data = await res.json();
+### Authentication Model
+
+All protected routes require a JWT in the `Authorization: Bearer <token>` header.
+
+| Token | Lifetime | Purpose |
+|-------|----------|---------|
+| `access_token` | Configurable (default 1 hour) | API calls |
+| `refresh_token` | Configurable (default 30 days) | Get new access token |
+
+**On every 401:** call `POST /api/auth/refresh` with both tokens. If refresh fails, redirect to login.
+
+### Standard Error Shape
+
+```json
+{ "error": "Human-readable message", "request_id": "abc12345" }
+```
+
+### Standard Pagination
+
+All list endpoints accept:
+- `?limit=20` (max 100 unless documented otherwise)
+- `?offset=0`
+
+---
+
+## 2. Email Configuration (Resend)
+
+**Where to configure:** Replit Secrets → `RESEND_API_KEY`
+
+**Where to set sender identity:**
+```
+EMAIL_FROM       = noreply@holygrills.ng   # sender email address
+EMAIL_FROM_NAME  = Holy Grills             # sender display name
+```
+
+**Email is sent automatically** by the backend for these critical events:
+| Trigger | Template Key |
+|---------|-------------|
+| Order confirmed | `order_confirmed` |
+| Order delivered | `order_delivered` |
+| Order refunded | `order_refunded` |
+| HP decay started | `hp_decay_applied` |
+| HP decay warning | `hp_decay_warning` |
+| Tier downgrade | `tier_downgrade` |
+| Tier upgrade | `tier_upgrade` |
+| Birthday HP | `birthday_bonus` |
+| Wallet top-up (card) | `wallet_funded_card` |
+| Wallet top-up (bank) | `wallet_funded_bank` |
+| Password reset | `password_reset` |
+| Referral completed | `referral_completed` |
+| Reward fulfilled | `reward_fulfilled` |
+| Event registration | `event_registered` |
+| Account deleted | `account_deleted` |
+
+**All email templates** live in `app/utils/email.py` → `TEMPLATES` dict.
+To change subject or body wording, edit the template there.
+To change user-facing string constants (error messages, notification text), edit `app/messages.py`.
+
+**To send a raw email from admin** (e.g. registrant list to host):
+```
+POST /api/events/<event_id>/send-registrants-to-host
 ```
 
 ---
 
-## 2. Authentication & Sessions
+## 3. Notification Blasts
 
-### Token Strategy
-| Token | Lifetime | Storage | Purpose |
-|---|---|---|---|
-| `access_token` | Short-lived (minutes/hours) | Memory or SecureStorage | API calls |
-| `refresh_token` | Long-lived (days) | SecureStorage / HttpOnly cookie | Rotate access token |
+**Blast = push + in-app notification sent to all users (or a segment).**
 
-On every 401 response, call `POST /auth/refresh` to get a new access token. On failure (refresh expired), send the user to login.
+### Send a Blast
 
-### Register
 ```http
-POST /api/auth/register
+POST /api/notifications/blasts
+Authorization: Bearer <admin_token>
 ```
+```json
+{
+  "title": "🎉 New Menu Drop!",
+  "body": "We just added 3 new combos. Order now before they sell out!",
+  "segment": "all",
+  "data": {}
+}
+```
+
+### List All Blasts
+
+```http
+GET /api/notifications/blasts
+Authorization: Bearer <admin_token>
+```
+
+### Get One Blast
+
+```http
+GET /api/notifications/blasts/<blast_id>
+Authorization: Bearer <admin_token>
+```
+
+---
+
+## 4. Feature Flags — Flip Any Feature
+
+**Every feature in the system is controlled by a flag in the `feature_flags` table.**
+No code deploy needed to turn a feature on or off — flip it from the admin API.
+
+### List All Flags
+
+```http
+GET /api/admin/feature-flags
+Authorization: Bearer <admin_token>
+```
+
+**Response:**
+```json
+[
+  { "feature_name": "spin_and_win", "is_active": true, "description": "Enables HP spin wheel" },
+  { "feature_name": "marketplace_general", "is_active": false, "description": "Opens marketplace" }
+]
+```
+
+### Get One Flag
+
+```http
+GET /api/admin/feature-flags/<flag_name>
+Authorization: Bearer <admin_token>
+```
+
+### Toggle / Update a Flag
+
+```http
+PATCH /api/admin/feature-flags/<flag_name>
+Authorization: Bearer <admin_token>
+```
+```json
+{ "is_active": false }
+```
+
+### All Available Flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `leaderboard_prizes` | `true` | Prize payout logic after monthly reset |
+| `free_side_credits` | `true` | Free side credit issuance at checkout |
+| `exclusive_spin` | `true` | Exclusive spin for top-10 leaderboard |
+| `hall_of_fame` | `true` | Hall of Fame data recording |
+| `badge_system` | `false` | Retired — badges and milestone challenges are no longer available |
+| `spin_and_win` | `false` | Retired — daily free spin and regular HP spin are no longer available |
+| `marketplace_general` | `false` | Opens marketplace to students |
+| `hp_transfer` | `false` | Peer-to-peer HP transfer |
+| `flash_redemptions` | `false` | Time-limited HP discount drops |
+| `squad_orders` | `true` | Squad ordering flow |
+| `referral_milestones` | `false` | Retired — referral milestone bonuses are no longer available |
+| `subscription_codes` | `false` | Subscription code redemption |
+| `hp_expiry_warnings` | `true` | Depreciation warning push notifications |
+| `birthday_hp` | `true` | Automatic birthday HP award job |
+| `scheduled_orders` | `true` | Future order scheduling |
+| `abandoned_cart_nudge` | `false` | Recovery nudge after 30 min inactivity |
+| `daily_checkin` | `true` | Explicit daily check-in button |
+| `event_ticket_tiers` | `true` | Multi-tier event ticket pricing |
+
+---
+
+## 5. Authentication
+
+**Prefix:** `/api/auth`
+
+---
+
+### POST /api/auth/register
+
+Register a new student account.
+
+**Body:**
 ```json
 {
   "email": "student@futa.edu.ng",
   "password": "SecurePass1!",
   "full_name": "Jane Doe",
-  "phone": "08012345678",          // optional, must be 11-digit NG format
-  "date_of_birth": "2000-01-15",   // optional, must be 16+ years old
-  "referred_by": "JANE123"         // optional referral code
+  "phone": "08012345678",
+  "date_of_birth": "2000-01-15",
+  "referred_by": "JANE123",
+  "department_id": "<uuid>",
+  "academic_level_id": "<uuid>"
 }
 ```
+
+> Password rules: min 8 chars, 1 uppercase, 1 number, 1 special character.
+> Phone: 11-digit Nigerian format (`08012345678` or `+2348012345678`).
+> Age: must be 16+.
+
 **Response 201:**
 ```json
 {
   "access_token": "eyJ...",
   "refresh_token": "eyJ...",
-  "user": { "id": "uuid", "email": "...", "role": "student" }
+  "user": { "id": "uuid", "email": "...", "role": "student", "full_name": "..." }
 }
 ```
-**Errors:** `400` underage, invalid phone, duplicate email, weak password (min 8 chars, 1 uppercase, 1 number, 1 special char).
 
-### Login
-```http
-POST /api/auth/login
-```
+**Errors:** `400` underage | invalid phone | duplicate email | weak password
+
+---
+
+### POST /api/auth/login
+
 ```json
 { "email": "...", "password": "..." }
 ```
+
 **Response 200:**
 ```json
 {
@@ -81,1920 +279,3581 @@ POST /api/auth/login
   "user": { "id": "uuid", "email": "...", "role": "student", "full_name": "..." }
 }
 ```
-**Errors:** `401` wrong credentials, `429` rate-limited after multiple failures.
 
-### Refresh Token
-```http
-POST /api/auth/refresh
-```
+**Errors:** `401` wrong credentials | `429` rate-limited
+
+---
+
+### POST /api/auth/refresh
+
+Rotate tokens. Send **both** current tokens; server issues new pair.
+
 ```json
 { "refresh_token": "eyJ...", "access_token": "eyJ..." }
 ```
-**Response 200:** `{ "access_token": "eyJ...", "refresh_token": "eyJ...", "rotated": true }`
 
-### Get Current User
-```http
-GET /api/auth/me
-Authorization: Bearer <token>
+**Response 200:**
+```json
+{ "access_token": "eyJ...", "refresh_token": "eyJ...", "rotated": true }
 ```
+
+---
+
+### GET /api/auth/me
+
+Get current user profile. Auth required.
+
 **Response 200:**
 ```json
 {
   "id": "uuid",
   "email": "student@futa.edu.ng",
   "full_name": "Jane Doe",
+  "phone": "08012345678",
   "role": "student",
+  "tier": "bronze",
+  "hp_balance": 450,
   "referral_code": "JANE123",
-  "profile": {
-    "id": "uuid", "full_name": "...", "phone": "...", "date_of_birth": "...",
-    "academic_level": 300, "role": "student", "referral_code": "JANE123",
-    "push_enabled": true, "email_notifications": true
-  },
-  "wallet": { "balance": 5000.00, "currency": "NGN" },
-  "tier": { "slug": "regular", "name": "Regular", "color": "blue" }
+  "date_of_birth": "2000-01-15",
+  "department_id": "uuid",
+  "academic_level_id": "uuid"
 }
 ```
 
-### Other Auth Endpoints
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `PATCH` | `/auth/profile` | Yes | Update full_name, phone, date_of_birth, push_enabled |
-| `POST` | `/auth/change-password` | Yes | `{ current_password, new_password }` — logs out all other sessions |
-| `POST` | `/auth/reset-password` | No | `{ email }` — sends reset link |
-| `POST` | `/auth/verify-email` | No | `{ email }` — resend verification |
-| `POST` | `/auth/logout-all-devices` | Yes | Invalidates all tokens |
-| `GET`  | `/auth/streak` | Yes | Login streak: `{ streak_count, last_login_date }` |
-| `POST` | `/auth/device-token` | Yes | `{ token: "fcm_or_apns_token", platform: "ios"|"android" }` |
-
-### Role System
-| Role | Access Level |
-|---|---|
-| `student` | Default — place orders, manage HP, wallet, events |
-| `kitchen` | All student access + kitchen queue management |
-| `rider` | All student access + delivery management |
-| `admin` | Full access including all management endpoints |
-
 ---
 
-## 3. Complete API Reference
+### PATCH /api/auth/profile
 
-### Addresses
-```http
-GET    /api/auth/addresses          # List user's saved addresses
-POST   /api/auth/addresses          # Create address
-PATCH  /api/auth/addresses/:id      # Update address
-DELETE /api/auth/addresses/:id      # Delete address
-```
-**Create body:** `{ label, line1, line2?, city, state, is_default? }`
+Update own profile. Auth required.
 
----
-
-### Menu
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/menu/categories` | No | List all categories |
-| `POST` | `/api/menu/categories` | Admin | Create category `{ name, slug }` |
-| `PATCH` | `/api/menu/categories/:id` | Admin | Update category |
-| `DELETE` | `/api/menu/categories/:id` | Admin | Delete category |
-| `GET` | `/api/menu/items` | No | List items (query: `category`, `q`, `available_only`, `is_featured`, `limit`, `offset`) |
-| `GET` | `/api/menu/items/:id` | No | Get item detail (includes `is_sold_out`, `remaining_today`) |
-| `POST` | `/api/menu/items` | Admin | Create item `{ name, price, category_id, hp_earn_value, daily_limit? }` |
-| `PATCH` | `/api/menu/items/:id` | Admin | Update item |
-| `GET` | `/api/menu/items/:id/addons` | No | Item-specific add-on groups |
-| `GET` | `/api/menu/addons` | No | All add-on groups |
-| `POST` | `/api/menu/addons` | Admin | Create add-on group `{ name, items, min_select, max_select }` |
-| `GET` | `/api/menu/kitchen-capacity` | No | `{ daily_order_capacity, orders_today, remaining }` |
-| `PATCH` | `/api/menu/kitchen-capacity` | Kitchen | Set `{ daily_order_capacity }` |
-
-**Menu Item response key fields:** `id`, `name`, `price` (kobo/naira), `hp_earn_value`, `category_id`, `is_available`, `is_featured`, `is_sold_out`, `remaining_today`, `image_url`, `description`, `addons`.
-
----
-
-### Cart
-```http
-GET    /api/cart                # Get full cart {items, subtotal}
-POST   /api/cart                # Add item {menu_item_id, quantity, notes?, addon_selections?}
-PATCH  /api/cart/:item_id       # Update {quantity?, notes?, addon_selections?}
-DELETE /api/cart/:item_id       # Remove item
-DELETE /api/cart                # Clear entire cart
-```
-Cart is **persisted server-side** — always fetch from server on load. `subtotal` is in Naira.
-
----
-
-### Saved For Later
-```http
-GET    /api/saved                       # List saved items
-POST   /api/saved                       # Save item {menu_item_id, quantity, notes?}
-PATCH  /api/saved/:id                   # Update saved item {quantity?, notes?}
-DELETE /api/saved/:id                   # Remove saved item
-POST   /api/saved/:id/move-to-cart      # Move saved item to cart
-POST   /api/saved/from-cart/:cart_item_id  # Move cart item to saved
+```json
+{
+  "full_name": "Jane Doe Updated",
+  "phone": "08012345678",
+  "date_of_birth": "2000-01-15",
+  "department_id": "<uuid>",
+  "academic_level_id": "<uuid>"
+}
 ```
 
 ---
 
-### Orders — Create & List
+### POST /api/auth/logout
 
-**Place an Order**
-```http
-POST /api/orders
-Authorization: Bearer <token>   # Omit for guest checkout
+Revokes the current session token. Auth required.
+
+```json
+{ "refresh_token": "eyJ..." }
 ```
+
+---
+
+### POST /api/auth/logout-all-devices
+
+Revokes all sessions for this user on all devices. Auth required.
+
+---
+
+### GET /api/auth/addresses
+
+List the authenticated user's saved delivery addresses.
+
+**Response 200:** Array of address objects.
+
+---
+
+### POST /api/auth/addresses
+
+Add a new saved address.
+
+```json
+{
+  "label": "Room 14B",
+  "hostel_id": "<uuid>",
+  "notes": "Green door on the left"
+}
+```
+
+---
+
+### PATCH /api/auth/addresses/<address_id>
+
+Update a saved address.
+
+---
+
+### DELETE /api/auth/addresses/<address_id>
+
+Delete a saved address.
+
+---
+
+### POST /api/auth/change-password
+
+```json
+{ "current_password": "...", "new_password": "SecureNew1!" }
+```
+
+---
+
+### DELETE /api/auth/account
+
+Permanently delete the authenticated user's account. Irreversible.
+
+```json
+{ "password": "MyPassword1!" }
+```
+
+---
+
+### POST /api/auth/verify-email
+
+Resend email verification link.
+
+```json
+{ "email": "student@futa.edu.ng" }
+```
+
+---
+
+### POST /api/auth/reset-password
+
+Request a password reset email (public, no auth).
+
+```json
+{ "email": "student@futa.edu.ng" }
+```
+
+---
+
+### POST /api/auth/device-token
+
+Register a device push token (for OneSignal push notifications).
+
+```json
+{
+  "token": "ExponentPushToken[...]",
+  "platform": "ios"
+}
+```
+
+---
+
+### GET /api/auth/streak
+
+Get the authenticated user's login streak and check-in status.
+
+**Response 200:**
+```json
+{
+  "current_streak": 7,
+  "longest_streak": 14,
+  "streak_start": "2026-07-28",
+  "checked_in_today": true,
+  "missed_days_this_week": 0
+}
+```
+
+---
+
+## 6. Menu
+
+**Prefix:** `/api/menu`
+
+---
+
+### GET /api/menu/categories
+
+List all active menu categories. Public.
+
+**Response 200:** Array of `{ id, name, description, is_active, sort_order }`.
+
+---
+
+### POST /api/menu/categories *(Admin)*
+
+```json
+{
+  "name": "Combos",
+  "description": "Full meal combos",
+  "sort_order": 1
+}
+```
+
+---
+
+### PATCH /api/menu/categories/<category_id> *(Admin)*
+
+Update a category name, description, or sort order.
+
+---
+
+### DELETE /api/menu/categories/<category_id> *(Admin)*
+
+Soft-deactivate a category (does not delete items inside it).
+
+---
+
+### GET /api/menu/items
+
+List all available menu items. Public. Supports filters:
+
+| Query param | Type | Description |
+|-------------|------|-------------|
+| `category_id` | UUID | Filter by category |
+| `available_only` | bool | Default `true` — hides sold-out |
+| `search` | string | Name search |
+| `limit` | int | Default 50 |
+| `offset` | int | Default 0 |
+
+**Response 200:** Array of enriched item objects with `daily_sold`, `daily_remaining`, `at_capacity`.
+
+---
+
+### GET /api/menu/items/<item_id>
+
+Get full item detail including **variation groups**, **options**, and **add-on groups**.
+
+**Response 200:**
+```json
+{
+  "id": "uuid",
+  "name": "Chicken & Rice Combo",
+  "price": 2500,
+  "category_id": "uuid",
+  "is_available": true,
+  "daily_limit": 50,
+  "daily_sold": 12,
+  "variation_groups": [
+    {
+      "id": "uuid",
+      "name": "Choose your side",
+      "is_required": true,
+      "min_selections": 1,
+      "max_selections": 1,
+      "options": [
+        { "id": "uuid", "name": "Coleslaw", "price_delta": 0, "is_available": true },
+        { "id": "uuid", "name": "Plantain", "price_delta": 200, "is_available": true }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/menu/items *(Admin)*
+
+Create a new menu item.
+
+```json
+{
+  "name": "Jollof Rice Combo",
+  "price": 2000,
+  "category_id": "<uuid>",
+  "description": "Jollof rice with chicken",
+  "daily_limit": 100,
+  "is_available": true,
+  "sort_order": 1
+}
+```
+
+---
+
+### PATCH /api/menu/items/<item_id> *(Admin)*
+
+Update item price, availability, daily limit, description, etc.
+
+```json
+{
+  "price": 2200,
+  "is_available": false,
+  "daily_limit": 80
+}
+```
+
+---
+
+### POST /api/menu/items/<item_id>/archive *(Admin)*
+
+Archive (soft-delete) a menu item. Hides it from all listings.
+
+---
+
+### POST /api/menu/items/bulk-availability *(Admin)*
+
+Toggle availability for multiple items at once.
+
+```json
+{
+  "item_ids": ["uuid1", "uuid2"],
+  "is_available": false
+}
+```
+
+---
+
+### Menu Item Variations (Admin)
+
+Variations are **required or optional choices** tied to a specific menu item (e.g., "Choose your side"). Different from add-ons which are optional extras on any order.
+
+#### GET /api/menu/items/<item_id>
+
+Variation groups and options are returned in the item detail response (see above).
+
+#### POST /api/menu/items/<item_id>/variation-groups *(Admin)*
+
+Create a variation group on an item.
+
+```json
+{
+  "name": "Choose your side",
+  "is_required": true,
+  "min_selections": 1,
+  "max_selections": 1,
+  "sort_order": 0
+}
+```
+
+#### PATCH /api/menu/items/<item_id>/variation-groups/<group_id> *(Admin)*
+
+Update a variation group (name, required flag, min/max selections).
+
+#### DELETE /api/menu/items/<item_id>/variation-groups/<group_id> *(Admin)*
+
+Delete a variation group and **all its options** (cascades).
+
+---
+
+#### POST /api/menu/items/<item_id>/variation-groups/<group_id>/options *(Admin)*
+
+Add a choice to a variation group.
+
+```json
+{
+  "name": "Coleslaw",
+  "price_delta": 0,
+  "is_available": true,
+  "sort_order": 0
+}
+```
+
+> `price_delta`: extra charge for this option (0 = free, 200 = +₦200).
+
+#### PATCH /api/menu/items/<item_id>/variation-groups/<group_id>/options/<option_id> *(Admin)*
+
+Update an option (name, price_delta, availability, sort_order).
+
+#### DELETE /api/menu/items/<item_id>/variation-groups/<group_id>/options/<option_id> *(Admin)*
+
+Delete a single variation option.
+
+---
+
+### Menu Add-Ons (Admin)
+
+Add-ons are **optional extras** that apply to any order (not tied to a specific item).
+
+#### GET /api/menu/items/<item_id>/addons
+
+List add-on groups attached to a specific item.
+
+#### GET /api/menu/addons
+
+List all global add-on items.
+
+#### POST /api/menu/addons *(Admin)*
+
+Create a global add-on.
+
+```json
+{
+  "name": "Extra Sauce",
+  "price": 100,
+  "category": "sauce",
+  "is_available": true
+}
+```
+
+#### PATCH /api/menu/addons/<addon_id> *(Admin)*
+
+Update an add-on.
+
+#### POST /api/menu/addons/<addon_id>/archive *(Admin)*
+
+Archive an add-on.
+
+---
+
+#### POST /api/menu/items/<item_id>/addon-groups *(Admin)*
+
+Create an add-on group linked to a specific item.
+
+```json
+{
+  "name": "Sides",
+  "is_required": true,
+  "min_select": 3,
+  "max_select": 3
+}
+```
+
+#### PATCH /api/menu/items/<item_id>/addon-groups/<group_id> *(Admin)*
+
+Update an add-on group.
+
+#### DELETE /api/menu/items/<item_id>/addon-groups/<group_id> *(Admin)*
+
+Delete an add-on group and all its linked add-ons (cascades).
+
+---
+
+### Kitchen Capacity *(Admin/Kitchen)*
+
+#### GET /api/menu/kitchen-capacity *(Admin)*
+
+Get current daily order capacity setting.
+
+#### PATCH /api/menu/kitchen-capacity *(Admin)*
+
+Set the daily kitchen capacity.
+
+```json
+{ "capacity": 150 }
+```
+
+---
+
+## 7. Cart
+
+**Prefix:** `/api/cart` | Auth required.
+
+---
+
+### GET /api/cart
+
+Get the authenticated user's cart with live item prices.
+
+**Response 200:**
 ```json
 {
   "items": [
-    { "menu_item_id": "uuid", "quantity": 2, "notes": "No onions", "addon_selections": [] }
+    {
+      "id": "uuid",
+      "menu_item_id": "uuid",
+      "name": "Chicken & Rice",
+      "price": 2500,
+      "quantity": 2,
+      "notes": "No pepper",
+      "selected_variations": [{ "group_id": "uuid", "option_id": "uuid", "name": "Coleslaw", "price_delta": 0 }]
+    }
   ],
-  "payment_method": "card",         // "wallet" | "card" | "split"
-  "delivery_type": "on_campus",     // "on_campus" | "off_campus"
-  "delivery_location_id": "hostel-uuid",   // hostel UUID (on_campus) or gate UUID (off_campus)
-  "delivery_location_lat": 7.302,   // required for off_campus
-  "delivery_location_lon": 5.131,   // required for off_campus
-  "promo_code": "SAVE10",           // optional
-  "is_scheduled": false,            // true for scheduled delivery
-  "scheduled_date": "2026-07-20",   // YYYY-MM-DD, required if is_scheduled=true
-  "squad_name": "My Squad",         // optional, enables squad order
-  "squad_emails": ["friend@futa.edu.ng"], // optional, min 2 more members for squad
-  // Guest checkout only (no auth token):
-  "guest_name": "Guest User",
-  "guest_phone": "08099999999"
+  "subtotal": 5000,
+  "item_count": 2
 }
 ```
 
-**Key response fields:**
+---
+
+### POST /api/cart
+
+Add an item to the cart. If the item already exists, quantity is incremented.
+
 ```json
 {
-  "order": {
+  "menu_item_id": "<uuid>",
+  "quantity": 2,
+  "notes": "No pepper please",
+  "selected_variations": [
+    { "group_id": "<uuid>", "option_id": "<uuid>" }
+  ]
+}
+```
+
+---
+
+### PATCH /api/cart/<cart_item_id>
+
+Update quantity or notes. Setting `quantity` to `0` removes the item.
+
+```json
+{ "quantity": 3, "notes": "Extra sauce" }
+```
+
+---
+
+### DELETE /api/cart/<cart_item_id>
+
+Remove a single item from the cart.
+
+---
+
+### DELETE /api/cart
+
+Clear all items from the cart.
+
+---
+
+## 8. Saved Items
+
+**Prefix:** `/api/saved` | Auth required.
+
+Save items for later (like a wishlist).
+
+---
+
+### GET /api/saved
+
+List saved items.
+
+---
+
+### POST /api/saved
+
+Save an item.
+
+```json
+{ "menu_item_id": "<uuid>" }
+```
+
+---
+
+### PATCH /api/saved/<item_id>
+
+Update notes on a saved item.
+
+---
+
+### DELETE /api/saved/<item_id>
+
+Remove a saved item.
+
+---
+
+### POST /api/saved/<item_id>/move-to-cart
+
+Move a saved item into the active cart.
+
+---
+
+### POST /api/saved/from-cart/<cart_item_id>
+
+Save a cart item for later (removes from cart, adds to saved).
+
+---
+
+## 9. Orders
+
+**Prefix:** `/api/orders`
+
+---
+
+### POST /api/orders
+
+Create a new order. Supports both **authenticated** and **guest** checkout.
+
+**Auth:** Optional (`Authorization` header optional for guests)
+
+**Body:**
+```json
+{
+  "items": [
+    {
+      "menu_item_id": "<uuid>",
+      "quantity": 2,
+      "notes": "Extra sauce",
+      "selected_variations": [
+        { "group_id": "<uuid>", "option_id": "<uuid>" }
+      ],
+      "addon_ids": ["<uuid>"]
+    }
+  ],
+  "payment_method": "wallet",
+  "delivery_type": "on_campus",
+  "delivery_location_id": "<hostel_uuid>",
+  "promo_code": "PROMO10",
+  "notes": "Call before delivering",
+  "is_scheduled": false,
+  "scheduled_for_window_id": "<window_uuid>",
+  "scheduled_date": "2026-08-10",
+
+  "squad_name": "Block C Crew",
+
+  "guest_name": "Amara Eze",
+  "guest_phone": "08012345678",
+  "guest_email": "amara@example.com"
+}
+```
+
+**`payment_method`:** `wallet` | `card` | `split`
+> Guests cannot use `wallet` — must use `card`.
+
+**`delivery_type`:** `on_campus` | `off_campus`
+
+**Squad orders:** Include `squad_name` and the item count must be ≥ `SQUAD_ORDER_MIN_ITEMS` (default 3) and ≤ `SQUAD_ORDER_MAX_ITEMS` (default 6).
+
+**Response 201:**
+```json
+{
+  "id": "uuid",
+  "order_number": "HG-2026-001",
+  "status": "received",
+  "total": 5000,
+  "items": [...],
+  "claim_token": "abc123",
+  "paystack_authorization_url": "https://paystack.com/pay/...",
+  "delivery_window": { "label": "12:00 PM – 1:00 PM", "date": "2026-08-06" }
+}
+```
+
+---
+
+### GET /api/orders
+
+List authenticated user's orders.
+
+| Query | Description |
+|-------|-------------|
+| `status` | Filter by status |
+| `limit` | Default 20 |
+| `offset` | Default 0 |
+
+---
+
+### GET /api/orders/<order_id>
+
+Get order detail. Authenticated users can only see their own orders.
+Guests can access using `?claim_token=<token>`.
+
+---
+
+### PATCH /api/orders/<order_id>/status *(Kitchen/Rider/Admin)*
+
+Update order status. Valid transitions enforced by the state machine.
+
+```json
+{ "status": "preparing", "notes": "Estimated 15 minutes" }
+```
+
+**Order State Machine:**
+```
+scheduled → received → preparing → ready → assigned → out_for_delivery
+                                                      → delivered
+                                                      → delivery_attempted → unclaimed
+Any pre-delivery state → cancelled | refunded
+```
+
+---
+
+### POST /api/orders/<order_id>/walk
+
+Mark order as "walk-in pickup" (no delivery). Auth required.
+
+---
+
+### POST /api/orders/<order_id>/review
+
+Leave a review for a delivered order. Auth required.
+
+```json
+{
+  "rating": 5,
+  "comment": "Fast delivery, great food!",
+  "item_ratings": [{ "menu_item_id": "<uuid>", "rating": 5 }]
+}
+```
+
+---
+
+### POST /api/orders/<order_id>/claim *(Guest)*
+
+Claim a guest order after registering. Links the order to the new account.
+
+```json
+{ "claim_token": "abc123" }
+```
+
+---
+
+### POST /api/orders/<order_id>/refund *(Admin)*
+
+Initiate a refund for an order.
+
+```json
+{ "reason": "Item out of stock", "refund_to": "wallet" }
+```
+
+---
+
+### GET /api/orders/scheduled
+
+Get the authenticated user's scheduled future orders.
+
+---
+
+### DELETE /api/orders/<order_id>/scheduled
+
+Cancel a scheduled order before it's received.
+
+---
+
+### GET /api/orders/active
+
+Get currently active (in-progress) orders for the authenticated user.
+
+---
+
+### GET /api/orders/delivery-windows
+
+List available delivery windows for ordering.
+
+**Response 200:**
+```json
+[
+  {
     "id": "uuid",
-    "status": "received",
-    "total_amount": 3500.00,
-    "delivery_fee": 400.00,
-    "hp_discount": 0,
-    "payment_method": "card",
-    "is_scheduled": false,
-    "is_squad_order": false,
-    "squad_name": null,
-    "claim_token": "abc123xyz",    // guest orders only — share with user
-    "delivery_type": "on_campus"
+    "label": "12:00 PM – 1:00 PM",
+    "date": "2026-08-06",
+    "is_open": true,
+    "available_slots": 40
+  }
+]
+```
+
+---
+
+### GET /api/orders/delivery-windows/status
+
+Check if ordering is currently open or closed.
+
+**Response 200:**
+```json
+{ "is_open": true, "next_window": "12:00 PM – 1:00 PM", "reason": null }
+```
+
+---
+
+### GET /api/orders/delivery-zones
+
+List delivery zones (on-campus vs off-campus areas).
+
+---
+
+### POST /api/orders/validate-promo
+
+Validate a promo code before checkout.
+
+```json
+{ "promo_code": "PROMO10", "order_total": 5000 }
+```
+
+**Response 200:**
+```json
+{
+  "valid": true,
+  "discount_type": "percentage",
+  "discount_value": 10,
+  "discount_amount": 500,
+  "final_total": 4500
+}
+```
+
+---
+
+### POST /api/orders/<order_id>/cancel
+
+Cancel an in-progress order (user).
+
+```json
+{ "reason": "Changed my mind" }
+```
+
+---
+
+### POST /api/orders/<order_id>/reorder
+
+Reorder a previous order — copies items to cart.
+
+---
+
+### POST /api/orders/<order_id>/share
+
+Generate a shareable link/card for the order. Awards `SOCIAL_SHARE_HP` if configured.
+
+---
+
+### POST /api/orders/<order_id>/squad-members
+
+Add members to a squad order and invite them.
+
+```json
+{
+  "members": [
+    { "name": "Tunde", "email": "tunde@futa.edu.ng", "phone": "08011111111" }
+  ]
+}
+```
+
+---
+
+### GET /api/orders/<order_id>/history
+
+Get the full status transition history for an order.
+
+---
+
+## 10. HP Economy
+
+**Prefix:** `/api/hp`
+
+Holy Points (HP) are the loyalty currency. HP is split into:
+- **Active HP:** Spendable immediately
+- **Pending HP:** Earned from food orders, unlocked as you spend
+
+---
+
+### GET /api/hp/balance
+
+Get the authenticated user's HP balance.
+
+**Response 200:**
+```json
+{
+  "active_hp": 350,
+  "pending_hp": 200,
+  "total_visible": 550,
+  "tier": "bronze",
+  "tier_multiplier": 1.0
+}
+```
+
+---
+
+### GET /api/hp/transactions
+
+Get HP transaction history.
+
+| Query | Description |
+|-------|-------------|
+| `type` | Filter: `earn` | `spend` | `unlock` | `expire` |
+| `limit` | Default 20 |
+| `offset` | Default 0 |
+
+---
+
+### GET /api/hp/tiers
+
+List all HP tiers with thresholds and perks. Public.
+
+**Response 200:**
+```json
+[
+  {
+    "slug": "bronze",
+    "name": "Bronze",
+    "threshold_hp": 0,
+    "multiplier": 1.0,
+    "perks": ["Base HP earning rate"]
+  },
+  {
+    "slug": "silver",
+    "name": "Silver",
+    "threshold_hp": 500,
+    "multiplier": 1.25,
+    "perks": ["1.25× HP earn rate", "Priority order processing"]
+  }
+]
+```
+
+---
+
+### GET /api/hp/unlock-history
+
+Get HP unlock history (HP converted from pending to active on food spend).
+
+---
+
+### GET /api/hp/bundles
+
+List available HP bundle tiers for purchase. Public.
+
+**Response 200:**
+```json
+[
+  { "hp": 100, "label": "Starter Pack", "price_naira": 500 },
+  { "hp": 500, "label": "Power Pack", "price_naira": 2500 }
+]
+```
+
+---
+
+### POST /api/hp/bundles/purchase
+
+Purchase an HP bundle using a Paystack card reference.
+
+```json
+{
+  "bundle_hp": 500,
+  "paystack_reference": "pay_abc123"
+}
+```
+
+---
+
+The regular HP spin and daily free spin have been retired. There is no
+`/api/hp/spin` endpoint.
+
+---
+
+### POST /api/hp/flash-redeem/<reward_id>
+
+Redeem a reward at the flash-sale price (50% HP discount, limited slots, 24h window).
+
+---
+
+### POST /api/hp/transfer *(Auth required)*
+
+Transfer active HP to another user.
+
+```json
+{
+  "recipient_id": "<uuid>",
+  "amount": 100,
+  "note": "Treat yourself!"
+}
+```
+
+> Requires `hp_transfer` feature flag to be enabled and minimum 3 completed orders.
+
+---
+
+### POST /api/hp/admin/grant *(Admin)*
+
+Manually grant HP to a user.
+
+```json
+{
+  "user_id": "<uuid>",
+  "amount": 200,
+  "source_type": "admin_grant",
+  "notes": "Compensation for delivery delay"
+}
+```
+
+---
+
+### POST /api/hp/admin/expire *(Admin)*
+
+Manually expire HP for a user.
+
+```json
+{ "user_id": "<uuid>", "amount": 100, "reason": "Policy violation" }
+```
+
+---
+
+### POST /api/admin/hp/bulk-grant *(Admin)*
+
+Grant HP to multiple users in one call.
+
+```json
+{
+  "user_ids": ["uuid1", "uuid2"],
+  "amount": 50,
+  "notes": "Community event bonus"
+}
+```
+
+---
+
+## 11. Wallet
+
+**Prefix:** `/api/wallet` | Auth required.
+
+---
+
+### GET /api/wallet
+
+Get wallet balance and virtual account information.
+
+**Response 200:**
+```json
+{
+  "balance": 15000,
+  "currency": "NGN",
+  "virtual_account": {
+    "bank_name": "Wema Bank",
+    "account_number": "0123456789",
+    "account_name": "Holy Grills / Jane Doe"
   }
 }
 ```
 
-> ⚠️ **HP redemption (`hp_points_to_redeem`) is not currently supported on orders — the field is accepted but ignored.**
-
-**List Orders**
-```http
-GET /api/orders?status=delivered&limit=20&offset=0
-```
-**Response:** `{ orders: [...], total }`
-
-**Get Order Detail**
-```http
-GET /api/orders/:id                           # owner or admin
-GET /api/orders/:id?claim_token=abc123xyz    # guest (no auth needed)
-```
-
-**Scheduled & Active Orders**
-```http
-GET /api/orders/scheduled     # Authenticated user's scheduled orders
-GET /api/orders/active        # User's current active order (if any)
-```
-
-**Validate Promo Code**
-```http
-POST /api/orders/validate-promo
-{ "code": "SAVE10", "order_subtotal": 5000 }
-```
-**Response:** `{ valid: true, calculated_discount: 500, discount_type: "percentage", discount_value: 10 }`
-
-**Delivery Windows**
-```http
-GET /api/orders/delivery-windows           # Future available windows
-GET /api/orders/delivery-windows/status    # Is ordering currently open?
-GET /api/orders/delivery-zones             # Configurable delivery zones
-```
-
 ---
 
-### Orders — Actions
+### POST /api/wallet/fund/card
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/orders/:id/cancel` | Owner | `{ reason }` — only `received` status |
-| `POST` | `/api/orders/:id/reorder` | Yes | Copy items from past order to cart |
-| `POST` | `/api/orders/:id/claim` | Yes | Claim guest order `{ claim_token }` |
-| `POST` | `/api/orders/:id/squad-members` | Organizer | Add `{ emails: [], split_hp: true }` |
-| `DELETE` | `/api/orders/:id/scheduled` | Owner | Cancel a scheduled order |
-| `POST` | `/api/orders/:id/refund` | Admin | `{ reason, refund_amount }` |
-| `GET` | `/api/orders/:id/history` | Owner/Admin | Status change log |
-| `POST` | `/api/orders/:id/review` | Owner | `{ rating: 1-5, review_text }` — awards HP |
+Initialize a Paystack card payment to top up the wallet.
 
----
-
-### Orders — Status (Kitchen & Rider)
-
-**Kitchen transitions:**
-```http
-PATCH /api/orders/:id/status
-Authorization: Bearer <kitchen_token>
-{ "status": "preparing" }   // received → preparing
-{ "status": "ready" }       // preparing → ready
-```
-
-**Rider transitions:**
-```http
-POST /api/riders/orders/:id/pickup    # ready/assigned → out_for_delivery
-POST /api/riders/orders/:id/deliver   # out_for_delivery → delivered
-```
-
-**Full state machine:**
-```
-received → preparing → ready → (assigned) → out_for_delivery → delivered
-         ↘          ↘       ↘                               ↘
-          cancelled   cancelled  cancelled               refunded
-```
-- `received`: Kitchen hasn't started. Customer can cancel.
-- `preparing`: Kitchen is working. No cancellation.
-- `ready`: Waiting for rider. Rider can pick up.
-- `assigned`: Order in a delivery batch assigned to a rider.
-- `out_for_delivery`: Rider has picked up. In transit.
-- `delivered`: Delivered. HP released, welcome/referral bonuses triggered.
-- `cancelled` / `refunded`: Terminal states.
-
----
-
-### Delivery
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/delivery/hostels` | No | List on-campus hostels `[{ id, name, delivery_fee }]` |
-| `GET` | `/api/delivery/gates` | No | List off-campus gates `[{ id, name, base_fee }]` |
-| `POST` | `/api/delivery/calculate-fee` | No | Calculate fee before ordering |
-| `POST` | `/api/delivery/admin/gates` | Admin | Create gate |
-| `PATCH` | `/api/delivery/admin/gates/:id` | Admin | Update gate |
-| `POST` | `/api/delivery/admin/hostels` | Admin | Create hostel |
-| `PATCH` | `/api/delivery/admin/hostels/:id` | Admin | Update hostel |
-
-**Calculate fee:**
 ```json
-{
-  "delivery_type": "on_campus",
-  "delivery_location_id": "hostel-uuid"
-}
-// off_campus also accepts lat/lon for distance-based pricing:
-{
-  "delivery_type": "off_campus",
-  "delivery_location_id": "gate-uuid",
-  "lat": 7.302, "lon": 5.131
-}
-```
-**Response:** `{ delivery_fee: 400, distance_km: 0.5 }`
-
----
-
-### HP Balance & Transactions
-
-```http
-GET /api/hp/balance               # {active, pending, tier: {slug, name}}
-GET /api/hp/transactions          # List, query: type=earn|spend, limit, offset
-GET /api/hp/transactions?type=earn
-GET /api/hp/tiers                 # All HP tiers and thresholds
-GET /api/hp/unlock-history        # When pending HP became active
+{ "amount": 5000 }
 ```
 
-**Balance response:**
-```json
-{
-  "active": 1250,
-  "pending": 350,
-  "tier": { "slug": "regular", "name": "Regular", "color": "#3B82F6", "min_hp": 500, "max_hp": 1999 }
-}
-```
-
-> ⚠️ **Display `active` and `pending` separately in the UI.** Never add them — pending HP has not yet been released.
-
-**HP Transaction types:** `earn`, `spend`, `unlock`, `expire`, `transfer_in`, `transfer_out`, `admin_grant`
-
----
-
-### HP Spending
-
-**Spin Wheel**
-```http
-POST /api/hp/spin            # First spin of the day is free; subsequent spins cost HP
-GET  /api/hp/spin/history    # User's spin history
-```
-**Response:** `{ prize: "50 HP", hp_awarded: 50, spin_cost_hp: 0, message: "Free spin!" }`
-
-**HP Transfer (P2P)**
-```http
-POST /api/hp/transfer
-{ "recipient_id": "uuid", "amount": 50, "notes": "Happy birthday!" }
-```
-Requires: minimum 10 HP, sender ≠ recipient, sender must have ≥ 3 completed delivered orders.  
-**Errors:** `400` below minimum, self-transfer, insufficient active HP, insufficient completed orders.
-
-**HP Bundles (Purchase HP for Cash)**
-```http
-GET  /api/hp/bundles           # List available bundle tiers with naira prices
-POST /api/hp/bundles/purchase  # { hp_amount: 500, paystack_reference: "ref_abc" }
-```
-
-**Flash Redemption**
-```http
-POST /api/hp/flash-redeem/:reward_id   # Redeem during an active flash sale window
-```
-
----
-
-### Rewards & Redemptions
-
-```http
-GET  /api/rewards                       # List all rewards (query: category, limit, offset)
-GET  /api/rewards/:id                   # Reward detail {name, hp_cost, stock_quantity, reward_type}
-POST /api/rewards/:id/redeem            # Redeem with HP
-GET  /api/rewards/redemptions           # My redemption history
-PATCH /api/rewards/:id                  # Admin: update reward
-GET  /api/rewards/admin/redemptions     # Admin: all redemptions
-```
-
-**Reward types:** `voucher`, `free_item`, `discount`, `experience`, `product`
-
----
-
-### Events
-
-```http
-GET  /api/events                         # List upcoming published events
-GET  /api/events/:id                     # Event detail
-POST /api/events/:id/register            # Register (get ticket) — auth required
-POST /api/events/:id/checkin             # Check in with QR {qr_token: "ticket_id"}
-POST /api/events/:id/qr                  # Admin: generate event QR
-POST /api/events                         # Admin: create event
-PATCH /api/events/:id                    # Admin: update event
-DELETE /api/events/:id                   # Admin: delete event
-POST /api/events/catering-requests       # Public: submit catering inquiry
-```
-
-**Register response:**
-```json
-{
-  "ticket_id": "uuid",
-  "qr_token": "uuid",          // same as ticket_id — use this for check-in
-  "event_id": "uuid",
-  "event_title": "FUTA Coding Night",
-  "status": "confirmed",
-  "message": "Registration successful. Use ticket_id as qr_token to check in."
-}
-```
-
----
-
-### Marketplace
-
-```http
-GET  /api/marketplace                        # List listings (query: q, category, limit, offset)
-GET  /api/marketplace/:id                    # Listing detail {codes_remaining, hp_price, price}
-POST /api/marketplace/:id/purchase           # Purchase with HP or wallet
-GET  /api/marketplace/purchases              # My purchase history
-POST /api/marketplace/requests               # Submit vendor request
-POST /api/marketplace/admin/listings         # Admin: create listing
-PATCH /api/marketplace/admin/listings/:id    # Admin: update listing
-POST /api/marketplace/admin/codes/:id        # Admin: add codes to listing {codes: ["CODE1", "CODE2"]}
-GET  /api/marketplace/admin/purchases        # Admin: all purchases
-GET  /api/marketplace/admin/requests         # Admin: all vendor requests
-PATCH /api/marketplace/admin/requests/:id    # Admin: approve/reject {status: "approved"|"rejected"}
-```
-
----
-
-### Kitchen (Role: kitchen or admin)
-
-```http
-GET  /api/kitchen/queue              # Active orders to prepare
-GET  /api/kitchen/scheduled          # Scheduled orders for today/tomorrow
-GET  /api/kitchen/windows            # Delivery windows with order counts
-GET  /api/kitchen/batch-summary/:id  # Batch totals for a window
-GET  /api/kitchen/metrics            # Today's throughput stats
-GET  /api/kitchen/settings           # Kitchen configuration
-PATCH /api/kitchen/settings          # Update kitchen config
-```
-
-**Queue item fields:** `id`, `status`, `items[{name, quantity, notes, addons}]`, `customer_name`, `delivery_type`, `created_at`.
-
----
-
-### Riders (Role: rider or admin)
-
-```http
-GET  /api/riders/my-batch                    # Current assigned delivery batch
-PATCH /api/riders/availability               # {is_available: bool, location_lat?, location_lng?}
-POST /api/riders/orders/:id/pickup           # Confirm pickup (ready → out_for_delivery)
-POST /api/riders/orders/:id/deliver          # Confirm delivery (out_for_delivery → delivered)
-GET  /api/riders/history                     # Completed deliveries
-GET  /api/riders/stats                       # Totals and performance
-GET  /api/riders/earnings?period=week|month|all  # Earnings breakdown
-GET  /api/riders/call/:order_id              # Secure call link (tel: URI)
-```
-
----
-
-### Leaderboard
-
-```http
-GET /api/leaderboard?period_type=monthly|weekly|all_time&limit=10
-GET /api/leaderboard/my-rank
-GET /api/leaderboard/squad?period_type=monthly
-GET /api/leaderboard/squad/my-rank
-GET /api/leaderboard/hall-of-fame/inductees   # Top 4 in 4+ different months
-```
-
-**Entry fields:** `rank`, `user_id`, `full_name`, `hp_earned`, `tier_slug`
-
----
-
-### Notifications & Push
-
-```http
-GET   /api/notifications?unread_only=true&limit=20&offset=0
-POST  /api/notifications/:id/read       # Mark one read
-POST  /api/notifications/read-all       # Mark all read
-GET   /api/notifications/preferences    # {push_enabled, email_notifications}
-PATCH /api/notifications/preferences    # {push_enabled: false}
-POST  /api/push/subscribe               # Web push subscription object
-```
-
-**Notification object:**
-```json
-{
-  "id": "uuid",
-  "type": "order_ready",
-  "title": "Order Ready!",
-  "body": "Your order is ready for pickup.",
-  "reference_id": "order-uuid",
-  "reference_type": "order",
-  "read": false,
-  "created_at": "2026-07-16T14:00:00Z"
-}
-```
-
-**Notification types:** `order_received`, `order_preparing`, `order_ready`, `order_delivered`, `order_cancelled`, `hp_earned`, `hp_received`, `event_registered`, `event_checkin`, `review_hp`, `referral_hp`, `birthday_hp`, `streak_bonus`, `challenge_completed`, `badge_unlocked`, `leaderboard_rank`.
-
----
-
-### Order Locks
-
-```http
-POST  /api/order-locks                       # Create lock
-GET   /api/order-locks                       # List my locks
-GET   /api/order-locks/:id                   # Detail
-PATCH /api/order-locks/:id/reschedule        # Change date (once only)
-DELETE /api/order-locks/:id                  # Cancel lock
-```
-
-**Create lock:**
-```json
-{
-  "locked_date": "2026-07-25",          // must be future
-  "reward_type": "discount",            // "discount" | "hp"
-  "discount_pct": 15,                   // required if reward_type=discount (1–50)
-  "reward_hp_amount": 50                // required if reward_type=hp
-}
-```
-Placing an order on the `locked_date` applies the discount or awards the HP automatically.
-
----
-
-### Wallet
-
-```http
-GET  /api/wallet                                 # {balance, currency}
-GET  /api/wallet/transactions?type=topup&limit=20
-POST /api/wallet/fund/card                       # {amount (min 500 NGN), callback_url}
-POST /api/wallet/fund/bank                       # Provision virtual account (Paystack NUBAN)
-```
-
-**Fund via card response:**
+**Response 200:**
 ```json
 {
   "authorization_url": "https://checkout.paystack.com/...",
-  "reference": "pay_xxx",
-  "access_code": "xxx"
+  "reference": "HG-WALLET-abc123"
 }
 ```
-Redirect user to `authorization_url`. Paystack calls your webhook on completion.
 
-> ⚠️ **Wallet withdrawal is not available.** The withdraw endpoint has been removed. Do not display any withdrawal UI.
-
----
-
-### Admin
-
-#### Users
-```http
-GET   /api/admin/users?q=name&role=student&limit=20&offset=0
-GET   /api/admin/users/:id
-GET   /api/admin/users/:id/hp
-GET   /api/admin/users/:id/wallet
-GET   /api/admin/users/:id/orders
-```
-
-#### Orders
-```http
-GET  /api/admin/orders?status=delivered&from_date=2026-01-01
-```
-
-#### Delivery
-```http
-GET   /api/admin/delivery-windows
-POST  /api/admin/delivery-windows             # {label, starts_at, ends_at, capacity}
-POST  /api/admin/delivery-windows/:id/close
-POST  /api/admin/delivery-windows/:id/reopen
-GET   /api/admin/delivery-batches
-```
-
-#### Promo Codes
-```http
-GET   /api/admin/promo-codes
-POST  /api/admin/promo-codes      # {code, discount_type, discount_value, min_order_amount, max_uses, expires_at}
-PATCH /api/admin/promo-codes/:id
-GET   /api/admin/promo-codes/:id/uses
-```
-
-#### HP Management
-```http
-GET  /api/admin/hp/report
-POST /api/admin/hp/bulk-grant   # {amount, reason, dry_run?, user_ids?}
-POST /api/hp/admin/:user_id/grant    # Manual grant to user
-```
-
-#### System Settings
-```http
-GET   /api/admin/settings
-POST  /api/admin/settings          # {key, value, description}
-PATCH /api/admin/settings/:key     # {value}
-```
-
-Key system setting keys:
-| Key | Description | Default |
-|---|---|---|
-| `monthly_pending_cap` | Max pending HP per user per month | 800 |
-| `min_topup_amount` | Min wallet top-up (NGN) | 500 |
-| `min_withdrawal_amount` | Min withdrawal (NGN) | 1000 |
-| `signup_bonus_hp` | HP on registration | env: `SIGNUP_BONUS_HP` |
-| `welcome_bonus_hp` | HP on first delivery | env: `WELCOME_BONUS_HP` |
-| `referral_hp` | HP for referrer on referee's first order | env: `REFERRAL_HP` |
-| `birthday_hp` | HP on user's birthday | env: `BIRTHDAY_HP` |
-| `review_hp` | HP per order review | env: `REVIEW_HP` |
-| `social_share_hp` | HP per social share (daily) | env: `SOCIAL_SHARE_HP` |
-| `hp_transfer_min_orders` | Min completed orders to transfer HP | 3 |
-| `graduation_min_level` | Min academic_level to claim graduation HP | 400 |
-| `order_lock_max_discount` | Max % for order locks | 50 |
-| `notification_gap_minutes` | Min minutes between push notifications | 30 |
-
-#### Other Admin
-```http
-GET  /api/admin/abandoned-carts
-GET  /api/admin/audit-log
-GET  /api/admin/cron/status
-GET  /api/admin/first-order-gifts
-PATCH /api/admin/first-order-gifts/:id   # {status: "fulfilled"|"cancelled"}
-```
+> After payment, Paystack sends a webhook to `POST /api/webhooks/paystack` which credits the wallet automatically.
 
 ---
 
-### Analytics (Admin)
+### POST /api/wallet/fund/bank
 
-```http
-GET /api/analytics/dashboard
-GET /api/analytics/sales?from_date=2026-01-01&to_date=2026-07-16
-GET /api/analytics/orders?from_date=...&to_date=...
-GET /api/analytics/hp
-GET /api/analytics/referrals
-GET /api/analytics/items?from_date=...&to_date=...
-GET /api/analytics/users
-GET /api/analytics/retention
-GET /api/analytics/abandoned-carts
-GET /api/analytics/gifts
-GET /api/analytics/marketplace
-GET /api/analytics/export?type=orders|hp_transactions|wallet_transactions|users&from_date=...&to_date=...
-```
+Provision a Paystack Dedicated Virtual Account for bank transfers. Idempotent — returns the existing account if already provisioned.
 
----
-
-### Storefront
-
-```http
-GET  /api/storefront/sections              # Homepage sections (hero, featured items, etc.)
-GET  /api/storefront/operating-hours       # Opening hours per day of week
-GET  /api/storefront/banners               # Promotional banners
-POST /api/storefront/banners               # Admin: {title, image_url, placement, link_url?}
-PATCH /api/storefront/banners/:id          # Admin
-DELETE /api/storefront/banners/:id         # Admin
-GET  /api/storefront/early-supporters      # Early supporters list
-POST /api/storefront/early-supporters      # Admin: {name, photo_url?, social_links?, note?}
-POST /api/storefront/newsletter            # {email, full_name, source?}
-POST /api/storefront/newsletter/unsubscribe # {email}
-GET  /api/storefront/newsletter            # Admin: subscriber list
-```
-
----
-
-### Challenges & Badges
-
-```http
-GET  /api/challenges               # Active challenges (time-boxed milestones)
-GET  /api/challenges/badges        # Badges (permanent milestones, no time_window)
-GET  /api/challenges/my            # My progress on all milestones
-POST /api/challenges/:id/complete  # Claim a completed challenge
-POST /api/challenges/social-follow # Self-declare social media follow (once)
-GET  /api/challenges/admin         # Admin: all milestones
-POST /api/challenges/admin         # Admin: {title, trigger_type, trigger_value, hp_awarded, time_window?}
-PATCH /api/challenges/admin/:id    # Admin: update milestone
-DELETE /api/challenges/admin/:id   # Admin: deactivate
-POST /api/challenges/admin/:id/grant  # Admin: {user_id} — manually grant
-```
-
-**Trigger types:** `orders_count`, `hp_earned`, `referrals_count`, `reviews_count`, `social_share`, `social_follow`, `streak_days`, `wallet_topup_count`, `order_streak_weeks`
-
-**Time windows:** `weekly`, `monthly`, or omit for permanent badge.
-
----
-
-### Graduation
-
-```http
-POST /api/graduation/claim
-Authorization: Bearer <student_token>
-```
-Claims HP reward for reaching graduation-level `academic_level`. Requires `academic_level >= graduation_min_level` (system setting, default 400). One-time per user.
-
----
-
-### Health & Webhooks
-
-```http
-GET  /api/health              # {api: "Holy Grills", status: "ok", checks: {supabase: "connected"}}
-POST /api/webhooks/paystack   # Paystack payment events — requires x-paystack-signature header
-POST /api/webhooks/flutterwave # Flutterwave events — requires verif-hash header
-```
-
----
-
-## 4. Error Handling
-
-### Standard Error Response
-```json
-{ "error": "Human-readable error message" }
-```
-Some endpoints include extra fields:
+**Response 200:**
 ```json
 {
-  "error": "Insufficient active HP. Have 50, need 100",
-  "have": 50,
-  "need": 100
+  "bank_name": "Wema Bank",
+  "account_number": "0123456789",
+  "account_name": "Holy Grills / Jane Doe"
 }
 ```
 
-### HTTP Status Codes
-| Code | Meaning | UI Action |
-|---|---|---|
-| `200` | OK | Use response data |
-| `201` | Created | Show success, update UI |
-| `400` | Bad Request / Validation error | Show `error` field to user |
-| `401` | Unauthenticated / Token expired | Refresh token or redirect to login |
-| `403` | Forbidden / Wrong role | Show "access denied" |
-| `404` | Not Found | Show "item not found" |
-| `409` | Conflict (already exists, wrong state) | Show specific error message |
-| `429` | Rate limited | Back off and retry |
-| `500` | Server error | Show generic error, log to monitoring |
-| `502` | External service unavailable | Show "service temporarily unavailable" |
+---
 
-### Common Error Strings (display directly to users)
-- `"Minimum HP transfer is 10 HP"` → show validation error
-- `"Insufficient active HP. Have X, need Y"` → show balance info
-- `"Order cannot be cancelled at this stage"` → order already processing
-- `"This promo code is not valid"` → code expired or invalid
-- `"The kitchen has reached its daily order capacity. Please try again tomorrow"` → sold out for day
-- `"Event is at full capacity"` → event full
-- `"Monthly free-activity HP cap reached"` → inform user to wait
+### GET /api/wallet/transactions
+
+Get wallet transaction history.
+
+| Query | Description |
+|-------|-------------|
+| `type` | `topup` | `order_payment` | `refund` | `withdrawal` | `bank_transfer` |
+| `limit` | Default 20 |
 
 ---
 
-## 5. HP (Holy Points) System
+### GET /api/wallet/admin/transactions *(Admin)*
 
-### Tier System
-| Tier | Slug | HP Range | Perks |
-|---|---|---|---|
-| Newbie | `newbie` | 0 – 499 | Basic access |
-| Scout | `scout` | 500 – 999 | Priority queue |
-| Regular | `regular` | 1000 – 2499 | Exclusive rewards |
-| Champion | `champion` | 2500 – 4999 | Premium events |
-| Legend | `legend` | 5000+ | Hall of Fame eligible |
-
-Tier thresholds are configurable via env: `HP_TIER_SCOUT_MIN`, `HP_TIER_REGULAR_MIN`, etc.
-
-### HP Earning Paths
-| Source | Trigger | Amount |
-|---|---|---|
-| Food Order | On delivery | `hp_earn_value` per item |
-| Order Review | Submit review | `review_hp` (default 20) |
-| Referral | Referee's first order delivered | `referral_hp` (default 75) |
-| Welcome Bonus | First order delivered | `welcome_bonus_hp` (default 50) |
-| Birthday | On birthday (via cron) | `birthday_hp` (default 150) |
-| Social Share | Share order link (once/day) | `social_share_hp` (default 25) |
-| Event Check-In | Attend event | `hp_reward` set per event |
-| Challenges | Complete milestone | `hp_awarded` set per challenge |
-| Login Streak | Daily login (week completion) | 25 / 40 / 60 / 80 HP |
-| Spin Wheel | Lucky spin | Prize varies |
-| Admin Grant | Manual | Any amount |
-| Graduation | Claim at academic_level 400+ | Configured HP |
-| Anniversary | Monthly milestones | Configured HP |
-
-### Pending vs Active HP
-- **Pending HP**: Awarded immediately on order placement but **locked**. Unlocks at delivery.
-- **Active HP**: Can be spent on rewards, transfers, spin wheel.
-- **Monthly Cap**: Free-activity HP (non-food-order) is capped at ~800/month. `MONTHLY_HP_CAP` env var.
-
-### HP UI Recommendations
-```
-Active HP:  1,250  ✅ (spendable)
-Pending HP:   350  🕐 (releases on delivery)
-Total:      1,600
-```
-Always show both separately. Never merge them.
+List all wallet transactions across all users.
 
 ---
 
-## 6. Order Lifecycle
+## 12. Rewards
 
-### Guest Checkout Flow
-1. POST `/api/orders` without `Authorization` header, include `guest_name` + `guest_phone`
-2. Only `payment_method: "card"` allowed for guests
-3. Response includes `claim_token`
-4. Guest can view order via `GET /api/orders/:id?claim_token=<token>`
-5. Authenticated user can claim via `POST /api/orders/:id/claim { claim_token }`
-
-### Squad Order Flow
-1. Create order with `squad_emails` (at least 2 additional emails) and `squad_name`
-2. Server notifies squad members via email/push
-3. Add more members later via `POST /api/orders/:id/squad-members`
-4. HP earned is split among all squad members (if `split_hp: true`)
-
-### Scheduled Order Flow
-1. Set `is_scheduled: true` and `scheduled_date: "YYYY-MM-DD"` in order payload
-2. Order stays in "scheduled" state until the scheduled date
-3. Cancel via `DELETE /api/orders/:id/scheduled`
-4. List via `GET /api/orders/scheduled`
-
-### Payment Methods
-| Method | How it works |
-|---|---|
-| `card` | Returns Paystack checkout URL — redirect user, Paystack webhook confirms payment |
-| `wallet` | Deducted immediately from wallet balance |
-| `split` | Wallet covers part, card covers the rest |
+**Prefix:** `/api/rewards`
 
 ---
 
-## 7. Wallet & Payments
+### GET /api/rewards
 
-### Fund via Card (Paystack Flow)
-```
-1. POST /api/wallet/fund/card { amount: 5000, callback_url: "https://yourapp.com/wallet/return" }
-2. Receive: { authorization_url, reference, access_code }
-3. Redirect user to authorization_url (or embed in WebView)
-4. Paystack redirects to callback_url with ?reference=xxx
-5. Paystack webhook (POST /api/webhooks/paystack) automatically credits wallet
-```
+List active rewards. Public (no auth required).
 
-### Fund via Bank (Virtual Account)
-```
-POST /api/wallet/fund/bank
-```
-Returns NUBAN virtual account number. User transfers from any bank. Webhook credits wallet.
-> Note: Requires Paystack dedicated NUBAN feature (may not be available in sandbox).
-
-### Withdraw
-
-> ⚠️ **Wallet withdrawal has been removed.** Do not implement or display withdrawal UI. The `/wallet/withdraw` endpoint returns 404.
+| Query | Description |
+|-------|-------------|
+| `category` | Filter by category |
+| `tier` | Filter by minimum tier required |
 
 ---
 
-## 8. Notification System
+### GET /api/rewards/<reward_id>
 
-### Web Push Subscription
-```javascript
-// After getting user permission:
-const sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey });
-await fetch('/api/push/subscribe', {
-  method: 'POST', headers: { ..., Authorization: `Bearer ${token}` },
-  body: JSON.stringify({ subscription: sub })
-});
+Get reward detail.
+
+---
+
+### POST /api/rewards/<reward_id>/redeem *(Auth required)*
+
+Redeem a reward using HP.
+
+```json
+{ "quantity": 1 }
 ```
 
-### Mobile Push (FCM/APNs)
-```http
-POST /api/auth/device-token
-{ "token": "device-fcm-or-apns-token", "platform": "ios" }
+**Response 200:**
+```json
+{
+  "redemption_id": "uuid",
+  "reward_name": "Free Gizzard Wrap",
+  "hp_spent": 300,
+  "remaining_hp": 150,
+  "fulfilment_note": "Our team will fulfil this within 24 hours."
+}
 ```
 
-### In-App Inbox
-Poll `GET /api/notifications?unread_only=true&limit=5` every 30 seconds when app is in foreground. Show badge count from `unread_count` field.
-
-### Throttling
-Push notifications are throttled server-side:
-- `notification_gap_minutes` (default 30): Min gap between pushes per user
-- `notification_daily_cap` (default 10): Max pushes per user per day
+**Errors:** `400` insufficient HP | tier too low | reward sold out
 
 ---
 
-## 9. Polling & State Management
+### GET /api/rewards/redemptions *(Auth required)*
 
-### No WebSockets — Use Polling
-
-| Screen | Endpoint | Interval |
-|---|---|---|
-| Active order tracking (student) | `GET /api/orders/:id` | 15s |
-| Kitchen queue | `GET /api/kitchen/queue` | 10s |
-| Rider batch | `GET /api/riders/my-batch` | 15s |
-| Notification badge | `GET /api/notifications?unread_only=true&limit=1` | 30s |
-| HP balance | `GET /api/hp/balance` | 60s |
-
-### Local Storage Strategy
-| Data | Storage | Notes |
-|---|---|---|
-| `access_token` | Memory (or SecureStorage) | Short-lived; refresh on 401 |
-| `refresh_token` | SecureStorage / HttpOnly Cookie | Persist across sessions |
-| Cart | **Do NOT cache** — backend is source of truth | Always fetch from `GET /api/cart` |
-| HP balance | Can cache 60s | Show cached, refresh in background |
-| Menu items | Cache up to 5 min | Rarely changes |
-| User profile | Cache until logout | Refresh on app open |
-
-### Optimistic UI
-Safe for: cart operations, notification mark-read.  
-Avoid for: order status, HP balance, wallet balance — always confirm with server before showing final state.
+Get the authenticated user's redemption history.
 
 ---
 
-## 10. Role-Gated UI Flows
+### GET /api/rewards/admin/redemptions *(Admin)*
 
-### Student App
-- Home → Storefront sections, featured items, HP balance banner
-- Menu → Browse, filter by category, search, add to cart
-- Cart → Review items, select hostel/gate, apply promo, choose payment
-- Orders → Active order tracking, order history, reorder
-- HP Wallet → Balance (active/pending), transactions, tier progress
-- Rewards → Browse, redeem with HP
-- Leaderboard → Rankings, my rank, squad
-- Events → List, register, QR ticket display
-- Marketplace → Browse, purchase
-- Challenges → Active challenges, badges, progress
-- Notifications → Inbox, preferences
-- Profile → Settings, addresses, referral code, logout
+List all redemptions across all users.
 
-### Kitchen Display
-- Queue → Active orders, mark preparing / ready
-- Batch Summary → Items needed per delivery window
-- Scheduled → Upcoming scheduled orders
-- Metrics → Daily throughput
-
-### Rider App
-- Batch → Assigned orders for pickup
-- Pickup → Confirm pickup, navigate to customer
-- Deliver → Confirm delivery
-- Earnings → Daily/weekly earnings and stats
-- Availability → Toggle online/offline with location
-
-### Admin Panel
-- Users → Search, view history, adjust HP, manage roles
-- Orders → All orders, status, refunds
-- Menu → Categories, items, add-ons, availability
-- Delivery → Windows (create/close/reopen), batches, fees
-- Promo Codes → Create, edit, usage analytics
-- Analytics → Revenue, HP, retention, cohorts
-- Events → Create/edit, check-in monitoring
-- Marketplace → Listings, codes, vendor requests
-- Settings → System settings, HP amounts, feature flags
-- Rewards → Manage catalog, redemptions
+| Query | Description |
+|-------|-------------|
+| `status` | `pending` | `fulfilled` | `rejected` |
 
 ---
 
-## 11. Key Config & Feature Flags
+### PATCH /api/rewards/admin/redemptions/<redemption_id> *(Admin)*
 
-All HP amounts, spin costs, and feature toggles are configured via environment variables and `system_settings` (DB table). Admins can override DB values via `PATCH /api/admin/settings/:key`.
+Fulfil or reject a redemption.
 
-### Environment Variables (HP Economy)
-| Env Var | Description | Default |
-|---|---|---|
-| `SIGNUP_BONUS_HP` | HP on registration | 0 |
-| `WELCOME_BONUS_HP` | HP on first delivery | 50 |
-| `REFERRAL_HP` | Referrer bonus per referee | 75 |
-| `BIRTHDAY_HP` | Birthday HP grant | 150 |
-| `REVIEW_HP` | HP per review | 20 |
-| `SOCIAL_SHARE_HP` | HP per social share | 25 |
-| `EVENT_CHECKIN_HP` | Default event check-in HP | 40 |
-| `WALLET_TOPUP_HP` | HP per wallet top-up | 5 |
-| `MONTHLY_HP_CAP` | Monthly free-activity HP cap | 800 |
-| `SPIN_COST_HP` | HP cost for non-first spins | 10 |
-| `HP_TRANSFER_MIN_AMOUNT` | Min HP in P2P transfer | 10 |
-| `HP_BUNDLE_MIN_PURCHASE` | Min HP in bundle purchase | 100 |
-| `HP_BUNDLE_PRICE_PER_HP` | NGN per HP bundle | 5.0 |
-
-### Login Streak Weekly Bonuses
-| Week | Env Var | Default HP |
-|---|---|---|
-| Week 1 | `LOGIN_STREAK_WEEK1_HP` | 25 |
-| Week 2 | `LOGIN_STREAK_WEEK2_HP` | 40 |
-| Week 3 | `LOGIN_STREAK_WEEK3_HP` | 60 |
-| Week 4 | `LOGIN_STREAK_WEEK4_HP` | 80 |
-
-### Feature Flags via System Settings
-- `squad_order_enabled` → `SQUAD_ORDER_ENABLED`
-- `spin_prizes` → JSON array of spin wheel prizes
-- `hp_multiplier_active` → Live HP multiplier (1x, 2x, 3x)
-- `ordering_window_open_time` → `HH:MM` (WAT) when ordering opens
-- `ordering_window_close_time` → `HH:MM` (WAT) when ordering closes
-
----
-
-## 12. Deployment Configuration
-
-### Required Environment Variables
-```bash
-# Supabase
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-
-# Auth
-JWT_SECRET=your-secret-key-here
-JWT_ALGORITHM=HS256
-SECRET_KEY=flask-secret-key
-
-# Payments
-PAYSTACK_PUBLIC_KEY=pk_live_xxx
-PAYSTACK_SECRET_KEY=sk_live_xxx
-PAYSTACK_WEBHOOK_SECRET=whsec_xxx
-
-# Redis (for Celery background tasks)
-REDIS_URL=redis://localhost:6379/0
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/0
-
-# HP Economy (all optional, have defaults)
-SIGNUP_BONUS_HP=0
-WELCOME_BONUS_HP=50
-REFERRAL_HP=75
-...
+```json
+{ "status": "fulfilled", "admin_note": "Delivered at door" }
 ```
 
-### CORS
-Development: All origins allowed.  
-Production: Set `CORS_ORIGINS` env var to comma-separated allowed origins.
+---
 
-### Health Check Endpoint
-Monitor: `GET /api/health`
+### POST /api/rewards *(Admin)*
+
+Create a new reward.
+
+```json
+{
+  "name": "Free Gizzard Wrap",
+  "description": "A free gizzard wrap on your next order",
+  "hp_cost": 300,
+  "category": "food",
+  "quantity_available": 50,
+  "min_tier": "bronze",
+  "is_active": true,
+  "flash_hp_cost": 150,
+  "flash_ends_at": "2026-08-10T23:59:59Z"
+}
+```
+
+---
+
+### PATCH /api/rewards/<reward_id> *(Admin)*
+
+Update a reward.
+
+---
+
+### DELETE /api/rewards/<reward_id> *(Admin)*
+
+Soft-deactivate a reward (hides it from listings).
+
+---
+
+## 13. Marketplace
+
+**Prefix:** `/api/marketplace`
+
+> Controlled by `marketplace_general` feature flag — must be enabled before students can access.
+
+---
+
+### GET /api/marketplace
+
+List active marketplace listings. Auth required.
+
+---
+
+### GET /api/marketplace/<listing_id>
+
+Get a listing's detail.
+
+---
+
+### POST /api/marketplace/<listing_id>/purchase *(Auth required)*
+
+Purchase a listing.
+
+```json
+{ "payment_method": "wallet" }
+```
+
+**Response 200:**
+```json
+{
+  "purchase_id": "uuid",
+  "listing_name": "Netflix Subscription",
+  "code": "NETFL-ABC123",
+  "amount_paid": 3500,
+  "hp_earned": 50
+}
+```
+
+---
+
+### GET /api/marketplace/purchases *(Auth required)*
+
+Get the authenticated user's purchase history.
+
+---
+
+### GET /api/marketplace/admin/listings *(Admin)*
+
+List all marketplace listings (including inactive).
+
+---
+
+### GET /api/marketplace/admin/listings/<listing_id> *(Admin)*
+
+Get full listing detail including code inventory count.
+
+---
+
+### POST /api/marketplace/admin/listings *(Admin)*
+
+Create a new listing.
+
+```json
+{
+  "title": "Netflix 1-Month Subscription",
+  "description": "Access to Netflix standard plan",
+  "price_naira": 3500,
+  "price_hp": 0,
+  "vendor_name": "Netflix",
+  "category": "streaming",
+  "is_active": true
+}
+```
+
+---
+
+### PATCH /api/marketplace/admin/listings/<listing_id> *(Admin)*
+
+Update a listing.
+
+---
+
+### DELETE /api/marketplace/admin/listings/<listing_id> *(Admin)*
+
+Deactivate a listing.
+
+---
+
+### POST /api/marketplace/admin/codes/<listing_id> *(Admin)*
+
+Upload access codes for a listing (batch).
+
+```json
+{
+  "codes": ["CODE001", "CODE002", "CODE003"]
+}
+```
+
+---
+
+### POST /api/marketplace/requests *(Auth required)*
+
+Submit a vendor listing request.
+
+```json
+{
+  "vendor_name": "Spotify",
+  "service_title": "Spotify Premium",
+  "description": "Monthly premium plan",
+  "suggested_price": 2500
+}
+```
+
+---
+
+### GET /api/marketplace/admin/requests *(Admin)*
+
+List all vendor listing requests.
+
+---
+
+### PATCH /api/marketplace/admin/requests/<request_id> *(Admin)*
+
+Approve or reject a vendor request.
+
+```json
+{ "status": "approved", "notes": "Will be added next week" }
+```
+
+---
+
+### GET /api/marketplace/admin/purchases *(Admin)*
+
+List all purchases across all users.
+
+---
+
+### PATCH /api/marketplace/admin/purchases/<purchase_id> *(Admin)*
+
+Update a purchase record (e.g., mark code as delivered).
+
+---
+
+## 14. Events
+
+**Prefix:** `/api/events`
+
+---
+
+### GET /api/events
+
+List published events. Public.
+
+| Query | Description |
+|-------|-------------|
+| `upcoming` | `true` to only show future events |
+| `featured` | `true` to only show featured |
+
+---
+
+### GET /api/events/<event_id>
+
+Get event detail including ticket tiers if enabled.
+
+---
+
+### POST /api/events *(Admin)*
+
+Create a new event.
+
+```json
+{
+  "title": "Freshers Party 2026",
+  "description": "Annual FUTA freshers bash",
+  "location": "FUTA Main Auditorium",
+  "starts_at": "2026-09-01T18:00:00Z",
+  "ends_at": "2026-09-01T22:00:00Z",
+  "capacity": 500,
+  "is_paid": true,
+  "hp_reward": 40,
+  "hp_per_attendee": 40,
+  "is_published": true,
+  "is_featured": false
+}
+```
+
+---
+
+### GET /api/events/admin *(Admin)*
+
+List all events (including unpublished).
+
+---
+
+### PATCH /api/events/<event_id> *(Admin)*
+
+Update event details.
+
+---
+
+### DELETE /api/events/<event_id> *(Admin)*
+
+Delete an event. Cascades to tickets and check-ins.
+
+---
+
+### POST /api/events/<event_id>/qr *(Admin)*
+
+Generate/regenerate the QR check-in token for an event.
+
+**Response 200:**
+```json
+{
+  "qr_token": "HG-EVT-abc123xyz",
+  "qr_url": "https://api.holygrills.ng/events/uuid/checkin?token=HG-EVT-abc123xyz"
+}
+```
+
+---
+
+### POST /api/events/<event_id>/register *(Auth required)*
+
+Register for an event.
+
+```json
+{
+  "tier_id": "<tier_uuid>",
+  "payment_method": "wallet"
+}
+```
+
+> If the event has no tiers, `tier_id` is optional.
+> Payment methods: `wallet` | `hp` (if HP-priced tier)
+
+**Response 201:**
+```json
+{
+  "ticket_id": "uuid",
+  "event_title": "Freshers Party 2026",
+  "tier_name": "VIP",
+  "qr_code": "HG-TKT-abc123",
+  "hp_earned": 40,
+  "status": "confirmed"
+}
+```
+
+---
+
+### POST /api/events/<event_id>/checkin
+
+Check in to an event using the QR code token. Auth required.
+
+```json
+{ "qr_token": "HG-EVT-abc123xyz" }
+```
+
+**Response 200:**
+```json
+{
+  "message": "Check-in successful",
+  "event_title": "Freshers Party 2026",
+  "hp_awarded": 40,
+  "checked_in_at": "2026-09-01T18:15:00Z"
+}
+```
+
+---
+
+### Ticket Tiers
+
+#### GET /api/events/<event_id>/tiers
+
+List ticket tiers for an event. Public.
+
+**Response 200:**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "VIP",
+    "price_naira": 5000,
+    "price_hp": 0,
+    "capacity": 30,
+    "sold_count": 12,
+    "description": "VIP access with reserved seating"
+  },
+  {
+    "id": "uuid",
+    "name": "Regular",
+    "price_naira": 2000,
+    "price_hp": 0,
+    "capacity": 200,
+    "sold_count": 45,
+    "description": null
+  }
+]
+```
+
+#### POST /api/events/<event_id>/tiers *(Admin)*
+
+Create a ticket tier.
+
+```json
+{
+  "name": "VIP",
+  "price_naira": 5000,
+  "price_hp": 0,
+  "capacity": 30,
+  "description": "VIP access with reserved seating"
+}
+```
+
+#### PATCH /api/events/tiers/<tier_id> *(Admin)*
+
+Update a ticket tier.
+
+```json
+{ "price_naira": 5500, "capacity": 35 }
+```
+
+#### DELETE /api/events/tiers/<tier_id> *(Admin)*
+
+Delete a tier. Returns `400` if tickets have already been sold for this tier.
+
+---
+
+### Event Registrant Management *(Admin)*
+
+#### GET /api/events/<event_id>/registrants *(Admin)*
+
+List all registrants for an event. Supports `?format=csv` for CSV download.
+
+| Query | Description |
+|-------|-------------|
+| `format` | `json` (default) or `csv` |
+| `tier_id` | Filter by tier |
+| `checked_in` | `true` / `false` |
+
+**Response 200 (JSON):**
+```json
+[
+  {
+    "ticket_id": "uuid",
+    "user_id": "uuid",
+    "full_name": "Jane Doe",
+    "email": "jane@futa.edu.ng",
+    "phone": "08012345678",
+    "tier_name": "VIP",
+    "status": "confirmed",
+    "checked_in_at": null
+  }
+]
+```
+
+**Response 200 (CSV):** `Content-Type: text/csv` — downloadable file.
+
+#### POST /api/events/<event_id>/send-registrants-to-host *(Admin)*
+
+Email the full registrant list as an HTML table to the event host.
+
+```json
+{
+  "host_email": "organizer@company.com",
+  "host_name": "Event Organizer"
+}
+```
+
+**Response 200:**
+```json
+{ "message": "Registrant list sent", "host_email": "...", "count": 65 }
+```
+
+---
+
+### Catering Requests
+
+#### GET /api/events/catering-requests *(Admin)*
+
+List all catering requests.
+
+#### POST /api/events/catering-requests
+
+Submit a catering request. Auth required.
+
+```json
+{
+  "event_name": "Departmental Dinner",
+  "event_date": "2026-09-15",
+  "location": "Engineering Hall",
+  "expected_attendees": 100,
+  "menu_notes": "No seafood",
+  "contact_name": "Tunde Adeyemi",
+  "contact_phone": "08011112222"
+}
+```
+
+#### PATCH /api/events/catering-requests/<request_id> *(Admin)*
+
+Update a catering request status.
+
+```json
+{ "status": "approved", "notes": "Confirmed. Budget ₦150,000." }
+```
+
+---
+
+## 15. Referrals
+
+**Prefix:** `/api/referrals` | Auth required.
+
+---
+
+### GET /api/referrals
+
+Get the authenticated user's referrals list.
+
+**Response 200:**
+```json
+{
+  "referrals": [
+    { "referee_name": "Tunde", "status": "completed", "hp_earned": 75, "completed_at": "2026-07-15" }
+  ],
+  "total_referrals": 1,
+  "referral_code": "JANE123"
+}
+```
+
+---
+
+### GET /api/referrals/stats
+
+Get referral stats and milestone progress.
+
+**Response 200:**
+```json
+{
+  "total_referrals": 4,
+  "completed_referrals": 3,
+  "total_hp_earned": 225,
+  "next_milestone": { "count": 5, "bonus_hp": 150 },
+  "milestones_reached": []
+}
+```
+
+---
+
+### POST /api/referrals/complete
+
+Internal endpoint to mark a referral as complete (called after first order delivery).
+
+---
+
+## 16. Notifications
+
+**Prefix:** `/api/notifications` | `/api/push` | Auth required.
+
+---
+
+### POST /api/push/subscribe
+
+Register a push subscription (Expo / Web Push).
+
+```json
+{
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/...",
+    "keys": { "p256dh": "...", "auth": "..." }
+  },
+  "platform": "web"
+}
+```
+
+---
+
+### DELETE /api/push/subscribe
+
+Unsubscribe from push notifications.
+
+---
+
+### GET /api/notifications
+
+List the authenticated user's notifications (in-app).
+
+| Query | Description |
+|-------|-------------|
+| `unread_only` | `true` to filter unread |
+| `limit` | Default 20 |
+
+---
+
+### POST /api/notifications/<notification_id>/read
+
+Mark a notification as read.
+
+---
+
+### POST /api/notifications/read-all
+
+Mark all notifications as read.
+
+---
+
+### GET /api/notifications/preferences
+
+Get the authenticated user's notification preferences.
+
+---
+
+### PATCH /api/notifications/preferences
+
+Update notification preferences.
+
+```json
+{
+  "push_enabled": true,
+  "email_enabled": true,
+  "marketing_enabled": false
+}
+```
+
+---
+
+### GET /api/notifications/blasts *(Admin)*
+
+List all notification blasts sent.
+
+---
+
+### GET /api/notifications/blasts/<blast_id> *(Admin)*
+
+Get detail of a specific blast.
+
+---
+
+### POST /api/notifications/blasts *(Admin)*
+
+Send a push + in-app notification blast to all users or a segment.
+
+```json
+{
+  "title": "🎉 Flash Sale Alert!",
+  "body": "20% off all combos for the next 2 hours. Order now!",
+  "segment": "all",
+  "data": { "screen": "menu" }
+}
+```
+
+> `segment` options: `all` | `active_users` | `tier:silver` | `tier:gold`
+
+---
+
+## 17. Admin Panel
+
+**Prefix:** `/api/admin` | Admin role required for all endpoints.
+
+---
+
+### Users
+
+#### GET /api/admin/users
+
+List all users with filters.
+
+| Query | Description |
+|-------|-------------|
+| `role` | `student` | `admin` | `kitchen` | `rider` |
+| `tier` | `bronze` | `silver` | `gold` | `platinum` |
+| `search` | Name or email search |
+| `is_active` | `true` / `false` |
+
+#### GET /api/admin/users/<user_id>
+
+Get full user profile including HP balance, wallet balance, tier.
+
+#### GET /api/admin/users/<user_id>/orders
+
+Get all orders for a specific user.
+
+#### GET /api/admin/users/<user_id>/hp
+
+Get HP transaction history for a specific user.
+
+#### GET /api/admin/users/<user_id>/wallet
+
+Get wallet transaction history for a specific user.
+
+#### PATCH /api/admin/users/<user_id>/role
+
+Change a user's role.
+
+```json
+{ "role": "kitchen" }
+```
+
+Valid roles: `student` | `kitchen` | `rider` | `admin`
+
+#### POST /api/admin/users/<user_id>/deactivate
+
+Deactivate a user account (blocks login).
+
+#### POST /api/admin/users/<user_id>/activate
+
+Reactivate a deactivated user account.
+
+---
+
+### Orders
+
+#### GET /api/admin/orders
+
+List all orders with filters.
+
+| Query | Description |
+|-------|-------------|
+| `status` | Filter by order status |
+| `date` | `YYYY-MM-DD` |
+| `search` | Order number or user name |
+| `limit` | Default 50 |
+
+---
+
+### Promo Codes
+
+#### GET /api/admin/promo-codes
+
+List all promo codes.
+
+#### POST /api/admin/promo-codes
+
+Create a new promo code.
+
+```json
+{
+  "code": "PROMO10",
+  "discount_type": "percentage",
+  "discount_value": 10,
+  "max_uses": 100,
+  "min_order_value": 2000,
+  "expires_at": "2026-12-31T23:59:59Z",
+  "is_active": true
+}
+```
+
+`discount_type`: `percentage` | `fixed`
+
+#### PATCH /api/admin/promo-codes/<promo_id>
+
+Update a promo code.
+
+#### GET /api/admin/promo-codes/<promo_id>/uses
+
+Get usage history for a promo code.
+
+---
+
+### Delivery Windows
+
+#### GET /api/admin/delivery-windows
+
+List all delivery windows.
+
+#### POST /api/admin/delivery-windows
+
+Create a new delivery window.
+
+```json
+{
+  "label": "12:00 PM – 1:00 PM",
+  "date": "2026-08-06",
+  "open_time": "11:30",
+  "close_time": "13:00",
+  "capacity": 80
+}
+```
+
+#### POST /api/admin/delivery-windows/<window_id>/close
+
+Manually close a delivery window (stops accepting new orders).
+
+#### POST /api/admin/delivery-windows/<window_id>/reopen
+
+Reopen a closed delivery window.
+
+---
+
+### Delivery Batches
+
+#### GET /api/admin/delivery-batches
+
+List all delivery batches.
+
+#### GET /api/admin/delivery-batches/<batch_id>
+
+Get batch detail.
+
+#### POST /api/admin/delivery-batches
+
+Create a new delivery batch.
+
+```json
+{
+  "window_id": "<uuid>",
+  "rider_id": "<uuid>",
+  "zone": "Main Campus North"
+}
+```
+
+#### PATCH /api/admin/delivery-batches/<batch_id>
+
+Update a batch (assign rider, change zone, update status).
+
+#### DELETE /api/admin/delivery-batches/<batch_id>
+
+Cancel a batch.
+
+#### GET /api/admin/delivery-batches/<batch_id>/orders
+
+List all orders in a batch.
+
+---
+
+### Abandoned Carts
+
+#### GET /api/admin/abandoned-carts
+
+List abandoned carts (carts with items not ordered after 60 minutes).
+
+#### POST /api/admin/abandoned-carts/<cart_id>/nudge
+
+Send a recovery push + in-app notification to the user.
+
+---
+
+### Audit Log
+
+#### GET /api/admin/audit-log
+
+Get admin action audit log.
+
+| Query | Description |
+|-------|-------------|
+| `actor_id` | Filter by admin who performed action |
+| `entity_type` | e.g. `menu_items` |
+| `action` | `create` | `update` | `delete` |
+
+---
+
+### Cron Jobs (Manual Trigger)
+
+#### POST /api/admin/cron/<job_name>
+
+Manually trigger a scheduled background job.
+
+**Available jobs:**
+
+| Job Name | Description |
+|----------|-------------|
+| `birthday_hp` | Award birthday HP to today's birthdays |
+| `leaderboard_reset` | Reset monthly leaderboard and assign prizes |
+| `hp_expiry` | Run HP expiry/decay for inactive users |
+| `winback` | Send win-back notifications to inactive users |
+| `abandoned_cart` | Send nudges for abandoned carts |
+| `tier_recalculation` | Recalculate tiers for all users |
+| `streak_reset` | Reset daily streak counts |
+
+#### GET /api/admin/cron/status
+
+Get last run time and status for all cron jobs.
+
+---
+
+## 18. Kitchen
+
+**Prefix:** `/api/kitchen` | Kitchen or Admin role required.
+
+---
+
+### GET /api/kitchen/settings
+
+Get all kitchen settings.
+
+---
+
+### GET /api/kitchen/settings/<key>
+
+Get a specific kitchen setting by key (e.g., `daily_order_capacity`).
+
+---
+
+### PATCH /api/kitchen/settings *(Kitchen/Admin)*
+
+Update kitchen settings.
+
+```json
+{
+  "daily_order_capacity": 120,
+  "prep_time_minutes": 20
+}
+```
+
+---
+
+### GET /api/kitchen/queue
+
+Get the live order queue grouped by status.
+
+**Response 200:**
+```json
+{
+  "received": [ { "id": "uuid", "order_number": "HG-001", "items": [...], "created_at": "..." } ],
+  "preparing": [ ... ],
+  "ready": [ ... ]
+}
+```
+
+---
+
+### GET /api/kitchen/windows
+
+Get today's delivery windows with order counts.
+
+---
+
+### GET /api/kitchen/scheduled
+
+Get upcoming scheduled orders.
+
+---
+
+### GET /api/kitchen/metrics
+
+Get kitchen performance metrics (avg prep time, orders by status, throughput).
+
+---
+
+### GET /api/kitchen/batch-summary/<window_id>
+
+Get an order summary for a specific delivery window (for batch preparation).
+
+---
+
+### POST /api/kitchen/batch/<batch_id>/advance
+
+Advance a batch order to the next status in the queue.
+
+---
+
+## 19. Riders
+
+**Prefix:** `/api/riders` | Rider or Admin role required.
+
+---
+
+### GET /api/riders/my-batch
+
+Get the rider's currently assigned delivery batch with all orders.
+
+**Response 200:**
+```json
+{
+  "batch_id": "uuid",
+  "zone": "Main Campus North",
+  "orders": [
+    {
+      "id": "uuid",
+      "order_number": "HG-001",
+      "status": "assigned",
+      "delivery_address": { "hostel": "Block C", "room": "14B" },
+      "customer_name": "Jane Doe",
+      "customer_phone": "08012345678"
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/riders/orders/<order_id>/pickup
+
+Mark an order as picked up from kitchen (status → `out_for_delivery`).
+
+---
+
+### POST /api/riders/orders/<order_id>/deliver
+
+Mark an order as delivered (status → `delivered`). Awards HP to customer.
+
+```json
+{ "notes": "Left at the gate" }
+```
+
+---
+
+### POST /api/riders/orders/<order_id>/attempt
+
+Mark a delivery attempt (status → `delivery_attempted`).
+
+```json
+{ "notes": "Customer not available. Will retry." }
+```
+
+---
+
+### PATCH /api/riders/availability
+
+Update rider availability status.
+
+```json
+{ "is_available": true }
+```
+
+---
+
+### GET /api/riders/history
+
+Get the rider's delivery history.
+
+| Query | Description |
+|-------|-------------|
+| `date` | `YYYY-MM-DD` |
+| `limit` | Default 20 |
+
+---
+
+### GET /api/riders/stats
+
+Get rider performance stats (deliveries, avg time, completion rate).
+
+---
+
+### GET /api/riders/earnings
+
+Get rider earnings summary.
+
+---
+
+### GET /api/riders/call/<order_id>
+
+Get the customer's phone number for an order (to call before delivery).
+
+---
+
+## 20. Leaderboard
+
+**Prefix:** `/api/leaderboard`
+
+---
+
+### GET /api/leaderboard
+
+Get the current monthly leaderboard (top HP earners).
+
+| Query | Description |
+|-------|-------------|
+| `limit` | Default 10, max 50 |
+| `offset` | Default 0 |
+
+**Response 200:**
+```json
+{
+  "month": "2026-08",
+  "entries": [
+    { "rank": 1, "user_id": "uuid", "full_name": "Jane Doe", "hp_earned_month": 2400, "tier": "gold" },
+    { "rank": 2, ... }
+  ]
+}
+```
+
+---
+
+### GET /api/leaderboard/my-rank
+
+Get the authenticated user's current rank and HP for this month.
+
+**Response 200:**
+```json
+{
+  "rank": 4,
+  "hp_earned_month": 1800,
+  "entries_above": 3,
+  "prizes_if_maintain": { "free_sides": 0, "exclusive_spins": 1 }
+}
+```
+
+---
+
+### GET /api/leaderboard/hall-of-fame
+
+Get the Hall of Fame summary (users who have held #1 for 3+ consecutive months).
+
+---
+
+### GET /api/leaderboard/hall-of-fame/inductees
+
+List all Hall of Fame inductees.
+
+---
+
+### GET /api/leaderboard/hall-of-fame/inductees/<user_id>/card
+
+Get the shareable Hall of Fame card data for an inductee.
+
+---
+
+### GET /api/leaderboard/squad
+
+Get the squad leaderboard (groups ordered by combined HP).
+
+---
+
+### GET /api/leaderboard/squad/my-rank
+
+Get the authenticated user's squad rank.
+
+---
+
+### Leaderboard Prizes (Admin)
+
+At the end of each month, the `leaderboard_reset` cron assigns prizes automatically:
+
+| Rank | Free Side Credits | Exclusive Spins |
+|------|------------------|-----------------|
+| #1 | 3 credits | 1 spin |
+| #2 | 2 credits | 1 spin |
+| #3 | 1 credit | 1 spin |
+| #4–10 | — | 1 spin |
+
+#### GET /api/admin/leaderboard-prizes *(Admin)*
+
+List pending and fulfilled prize records.
+
+| Query | Description |
+|-------|-------------|
+| `status` | `pending` | `fulfilled` |
+| `month` | `YYYY-MM` |
+
+#### PATCH /api/admin/leaderboard-prizes/<record_id> *(Admin)*
+
+Mark a prize as fulfilled.
+
+```json
+{ "status": "fulfilled", "notes": "Credits and spins credited on 2026-08-01" }
+```
+
+---
+
+### Hall of Fame Rewards (Admin)
+
+#### GET /api/admin/hall-of-fame-rewards *(Admin)*
+
+List all Hall of Fame reward records (reward box preparation).
+
+#### PATCH /api/admin/hall-of-fame-rewards/<record_id> *(Admin)*
+
+Update a Hall of Fame reward status.
+
+```json
+{ "status": "box_prepared" }
+```
+
+Status values: `pending` | `box_prepared` | `fulfilled` | `cancelled`
+
+---
+
+## 21. Challenges & Badges (retired)
+
+The challenge, milestone, and badge subsystem has been retired. The
+`/api/challenges` prefix is no longer registered and existing database
+definitions are deactivated by the cleanup migration.
+
+**Response 200:**
+```json
+{
+  "completed_milestones": [...],
+  "in_progress": [...],
+  "badges": [
+    { "name": "Top 10 Finisher", "awarded_at": "2026-08-01", "expires_at": "2026-09-01" }
+  ]
+}
+```
+
+---
+
+### POST /api/challenges/<milestone_id>/complete
+
+Mark a challenge as complete (for manually-completable types). Auth required.
+
+---
+
+### POST /api/challenges/social-follow
+
+Record a social media follow action. Awards HP if configured. Auth required.
+
+```json
+{ "platform": "instagram", "action": "follow" }
+```
+
+---
+
+### Admin — Challenge Management
+
+#### GET /api/challenges/admin *(Admin)*
+
+List all challenges (including inactive).
+
+#### POST /api/challenges/admin *(Admin)*
+
+Create a new challenge.
+
+```json
+{
+  "title": "Combo Explorer",
+  "description": "Order 3 different combos over 3 weeks",
+  "hp_reward": 300,
+  "trigger_type": "item_category",
+  "trigger_config": { "category": "combos", "distinct_items": 3, "weeks": 3 },
+  "is_active": true
+}
+```
+
+**Supported `trigger_type` values:**
+
+| Type | What it checks |
+|------|---------------|
+| `order_count` | Total number of orders placed |
+| `order_distinct_days_weekly` | Orders on 4+ different weekdays in same week |
+| `item_category` | Order N distinct items from a category over N weeks |
+| `menu_item_id` | Order a specific item N times |
+| `min_order_total` | Place an order ≥ ₦X |
+| `referral_count` | Refer N friends |
+| `social_follow` | Follow on social media |
+| `event_checkin` | Check in to N events |
+| `review_count` | Leave N reviews |
+| `login_streak` | Maintain login streak for N days |
+
+#### PATCH /api/challenges/admin/<milestone_id> *(Admin)*
+
+Update a challenge.
+
+#### DELETE /api/challenges/admin/<milestone_id> *(Admin)*
+
+Delete a challenge.
+
+#### POST /api/challenges/admin/<milestone_id>/grant *(Admin)*
+
+Manually grant a challenge completion to a specific user.
+
+```json
+{ "user_id": "<uuid>", "notes": "Manual award — community event" }
+```
+
+---
+
+## 22. Daily Check-In
+
+**Prefix:** `/api/checkin` | Auth required.
+
+The check-in system is **separate from login streak** — users must explicitly tap "Check In" each day.
+
+---
+
+### POST /api/checkin
+
+Record today's check-in. Awards HP if `daily_checkin_hp` is set in system_settings.
+Idempotent — returns `200` if already checked in today.
+
+**Response 201 (new check-in):**
+```json
+{
+  "message": "Checked in! +5 HP awarded",
+  "checkin_date": "2026-08-06",
+  "hp_awarded": 5
+}
+```
+
+**Response 200 (already done today):**
+```json
+{
+  "message": "Already checked in today",
+  "already_checked_in": true
+}
+```
+
+---
+
+### GET /api/checkin/history
+
+Get check-in history for the authenticated user (for calendar display).
+
+| Query | Description |
+|-------|-------------|
+| `limit` | Default 30, max 90 |
+| `offset` | Default 0 |
+
+**Response 200:**
+```json
+{
+  "checkins": [
+    { "checkin_date": "2026-08-06", "created_at": "2026-08-06T08:15:00Z" },
+    { "checkin_date": "2026-08-05", "created_at": "2026-08-05T07:45:00Z" }
+  ],
+  "total": 2,
+  "checked_in_today": true
+}
+```
+
+> Use `checkins[].checkin_date` to render a calendar with ✅ marks on checked-in days.
+
+---
+
+## 23. Free Side Credits
+
+**Prefix:** `/api/free-sides` | Auth required.
+
+Free side credits are awarded to top-3 leaderboard finishers at month end:
+- #1 → 3 credits
+- #2 → 2 credits  
+- #3 → 1 credit
+
+Credits expire 60 days after award and can be redeemed at checkout.
+
+---
+
+### GET /api/free-sides
+
+Check the authenticated user's free side credit balance.
+
+**Response 200:**
+```json
+{
+  "total_credits": 2,
+  "credits": [
+    {
+      "id": "uuid",
+      "credits_remaining": 2,
+      "source": "leaderboard",
+      "month": "2026-07",
+      "expires_at": "2026-09-30T23:59:59Z"
+    }
+  ],
+  "available_sides": ["Fries", "Coleslaw", "Plantain", "Gizzard"]
+}
+```
+
+> **At checkout:** if `total_credits > 0`, show a pop-up prompting the user to select a free side.
+
+---
+
+### POST /api/free-sides/redeem
+
+Redeem one free side credit at checkout.
+
+```json
+{
+  "side_choice": "Coleslaw",
+  "order_id": "<uuid>"
+}
+```
+
+**Response 200:**
+```json
+{
+  "message": "Free side redeemed!",
+  "side_choice": "Coleslaw",
+  "credits_remaining": 1,
+  "order_id": "<uuid>"
+}
+```
+
+**Errors:**
+- `400` `side_choice` not in available list
+- `400` No active credits
+
+> The kitchen order view will show a **🏆 Reward** tag on orders with a redeemed free side.
+
+---
+
+## 24. Exclusive Spin
+
+**Prefix:** `/api/exclusive-spin` | Auth required.
+
+Exclusive spin is awarded to top-10 leaderboard finishers:
+- Ranks #1–10 each get 1 free spin per month
+- Spins are rewards only and cannot be purchased with HP
+- Spins expire 30 days after award
+
+---
+
+### GET /api/exclusive-spin
+
+Check available spin credits.
+
+**Response 200:**
+```json
+{
+  "total_spins": 1,
+  "spins": [
+    {
+      "id": "uuid",
+      "spin_count": 1,
+      "source": "leaderboard",
+      "month": "2026-07",
+      "expires_at": "2026-08-31T23:59:59Z"
+    }
+  ],
+  "prizes": [
+    { "name": "Free Sausage ×2", "weight": 15 },
+    { "name": "Free Gizzard ×3", "weight": 15 },
+    { "name": "Free Side", "weight": 10 },
+    { "name": "Free Coleslaw", "weight": 10 },
+    { "name": "HP Jackpot +750", "weight": 5 },
+    { "name": "HP Bolt +300", "weight": 20 },
+    { "name": "HP Boost +150", "weight": 15 },
+    { "name": "Double HP next order", "weight": 10 }
+  ]
+}
+```
+
+---
+
+### POST /api/exclusive-spin/spin
+
+Consume one spin credit and return the prize result.
+
+**Response 200:**
+```json
+{
+  "prize": "HP Bolt +300",
+  "hp_won": 300,
+  "new_hp_balance": 650,
+  "spins_remaining": 0
+}
+```
+
+**Errors:**
+- `400` No spin credits available
+
+---
+
+## 25. Storefront
+
+**Prefix:** `/api/storefront`
+
+The storefront is the public-facing landing page/app home.
+
+---
+
+### GET /api/storefront/sections
+
+Get all active storefront sections (hero, about, menu preview, etc.). Public.
+
+---
+
+### POST /api/storefront/sections *(Admin)*
+
+Create a new storefront section.
+
+```json
+{
+  "title": "Today's Specials",
+  "content": "...",
+  "section_type": "menu_preview",
+  "is_active": true,
+  "sort_order": 1
+}
+```
+
+---
+
+### PATCH /api/storefront/sections/<section_id> *(Admin)*
+
+Update a section.
+
+---
+
+### DELETE /api/storefront/sections/<section_id> *(Admin)*
+
+Delete a section.
+
+---
+
+### GET /api/storefront/operating-hours
+
+Get the storefront's operating hours. Public.
+
+---
+
+### PATCH /api/storefront/operating-hours *(Admin)*
+
+Update regular operating hours.
+
+```json
+{
+  "monday": { "open": "08:00", "close": "17:00" },
+  "tuesday": { "open": "08:00", "close": "17:00" }
+}
+```
+
+---
+
+### POST /api/storefront/operating-hours/override *(Admin)*
+
+Create a one-time operating hours override (e.g., holiday closure).
+
+```json
+{
+  "date": "2026-08-15",
+  "is_closed": true,
+  "reason": "Public holiday"
+}
+```
+
+---
+
+### POST /api/storefront/promo-codes/validate
+
+Validate a promo code (same as `/api/orders/validate-promo` but public-facing).
+
+---
+
+### GET /api/storefront/early-supporters
+
+List early supporter program sections. Public.
+
+---
+
+### POST /api/storefront/early-supporters *(Admin)*
+
+Create an early supporter entry.
+
+---
+
+### PATCH /api/storefront/early-supporters/<section_id> *(Admin)*
+
+Update an early supporter entry.
+
+---
+
+### DELETE /api/storefront/early-supporters/<section_id> *(Admin)*
+
+Delete an early supporter entry.
+
+---
+
+### GET /api/storefront/banners
+
+List active banners (promotional images/announcements). Public.
+
+---
+
+### POST /api/storefront/banners *(Admin)*
+
+Create a banner.
+
+```json
+{
+  "title": "New Menu Drop!",
+  "image_url": "https://...",
+  "link_url": "/menu",
+  "is_active": true,
+  "expires_at": "2026-08-31T23:59:59Z"
+}
+```
+
+---
+
+### PATCH /api/storefront/banners/<banner_id> *(Admin)*
+
+Update a banner.
+
+---
+
+### DELETE /api/storefront/banners/<banner_id> *(Admin)*
+
+Delete a banner.
+
+---
+
+### POST /api/storefront/newsletter
+
+Subscribe to the newsletter. Public.
+
+```json
+{ "email": "student@futa.edu.ng", "name": "Jane Doe" }
+```
+
+---
+
+### POST /api/storefront/newsletter/unsubscribe
+
+Unsubscribe from the newsletter.
+
+```json
+{ "email": "student@futa.edu.ng" }
+```
+
+---
+
+### GET /api/storefront/newsletter *(Admin)*
+
+List all newsletter subscribers.
+
+---
+
+## 26. Analytics
+
+**Prefix:** `/api/analytics` | Admin role required.
+
+All analytics endpoints support `?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` for date filtering.
+
+---
+
+### GET /api/analytics/dashboard
+
+High-level dashboard summary: total orders, revenue, active users, HP issued, top items.
+
+---
+
+### GET /api/analytics/sales
+
+Sales analytics: daily/weekly/monthly revenue breakdown.
+
+---
+
+### GET /api/analytics/hp
+
+HP economy analytics: HP issued, spent, expired, active balance totals.
+
+---
+
+### GET /api/analytics/referrals
+
+Referral analytics: total referrals, completion rate, HP awarded.
+
+---
+
+### GET /api/analytics/orders
+
+Order analytics: orders by status, by delivery type, avg order value.
+
+---
+
+### GET /api/analytics/items
+
+Menu item performance: most ordered, revenue per item, sell-out frequency.
+
+---
+
+### GET /api/analytics/users
+
+User analytics: registrations, active users, tier distribution, churn.
+
+---
+
+### GET /api/analytics/retention
+
+Cohort retention analytics.
+
+---
+
+### GET /api/analytics/marketplace
+
+Marketplace analytics: purchases, revenue, top listings.
+
+---
+
+### GET /api/analytics/gifts
+
+First-order gift analytics: gifts issued, cost, conversion rates.
+
+---
+
+### GET /api/analytics/abandoned-carts
+
+Abandoned cart analytics: count, recovery rate, nudge effectiveness.
+
+---
+
+### GET /api/analytics/export
+
+Export analytics data as CSV.
+
+| Query | Description |
+|-------|-------------|
+| `type` | `orders` | `users` | `hp` | `sales` |
+| `start_date` | `YYYY-MM-DD` |
+| `end_date` | `YYYY-MM-DD` |
+
+---
+
+## 27. Order Locks
+
+**Prefix:** `/api/order-locks` | Auth required.
+
+Order locks allow users to "pre-book" a meal slot with a deposit. Useful for recurring orders.
+
+---
+
+### POST /api/order-locks
+
+Create an order lock.
+
+```json
+{
+  "menu_item_id": "<uuid>",
+  "quantity": 1,
+  "delivery_window_id": "<uuid>",
+  "notes": "Same as last time"
+}
+```
+
+---
+
+### GET /api/order-locks
+
+List the authenticated user's order locks.
+
+---
+
+### GET /api/order-locks/<lock_id>
+
+Get a specific order lock detail.
+
+---
+
+### PATCH /api/order-locks/<lock_id>/reschedule
+
+Reschedule an order lock to a different window.
+
+```json
+{ "delivery_window_id": "<uuid>" }
+```
+
+---
+
+### DELETE /api/order-locks/<lock_id>
+
+Cancel an order lock.
+
+---
+
+### GET /api/order-locks/admin/all *(Admin)*
+
+List all order locks across all users.
+
+---
+
+## 28. Delivery Locations
+
+**Prefix:** `/api/delivery`
+
+---
+
+### GET /api/delivery/hostels
+
+List all on-campus hostel delivery locations. Public.
+
+**Response 200:**
+```json
+[
+  { "id": "uuid", "name": "Block C", "zone": "North Campus", "delivery_fee": 100 }
+]
+```
+
+---
+
+### GET /api/delivery/gates
+
+List all off-campus gate delivery points. Public.
+
+---
+
+### POST /api/delivery/calculate-fee
+
+Calculate the delivery fee for a specific location.
+
+```json
+{
+  "delivery_type": "on_campus",
+  "delivery_location_id": "<hostel_uuid>"
+}
+```
+
+**Response 200:**
+```json
+{ "fee": 100, "estimated_time_minutes": 20 }
+```
+
+---
+
+### Delivery Admin *(Admin)*
+
+#### GET /api/delivery/admin/hostels
+
+List all hostels (including inactive).
+
+#### POST /api/delivery/admin/hostels
+
+Create a hostel delivery location.
+
+```json
+{
+  "name": "Block C",
+  "zone": "North Campus",
+  "delivery_fee": 100,
+  "is_active": true
+}
+```
+
+#### PATCH /api/delivery/admin/hostels/<hostel_id>
+
+Update a hostel.
+
+#### DELETE /api/delivery/admin/hostels/<hostel_id>
+
+Deactivate a hostel.
+
+#### GET /api/delivery/admin/gates
+
+List all gate locations.
+
+#### POST /api/delivery/admin/gates
+
+Create a gate delivery location.
+
+#### PATCH /api/delivery/admin/gates/<gate_id>
+
+Update a gate.
+
+#### DELETE /api/delivery/admin/gates/<gate_id>
+
+Deactivate a gate.
+
+---
+
+## 29. Graduation
+
+**Prefix:** `/api/graduation` | Auth required.
+
+---
+
+### POST /api/graduation/claim
+
+Claim the one-time graduation HP bonus.
+
+```json
+{
+  "graduation_year": 2026,
+  "department": "Computer Science",
+  "evidence_url": "https://..."
+}
+```
+
+**Response 200:**
+```json
+{
+  "message": "Graduation bonus claimed!",
+  "hp_awarded": 1000,
+  "new_hp_balance": 1450
+}
+```
+
+---
+
+## 30. Departments
+
+**Prefix:** `/api/departments`
+
+---
+
+### GET /api/departments
+
+List all active departments. Public.
+
+---
+
+### GET /api/departments/faculties
+
+List departments grouped by faculty. Public.
+
+---
+
+### GET /api/departments/<dept_id>
+
+Get a department by ID. Public.
+
+---
+
+### Department Admin *(Admin)*
+
+#### GET /api/admin/departments
+
+List all departments (including inactive).
+
+#### POST /api/admin/departments
+
+Create a new department.
+
+```json
+{
+  "name": "Computer Science",
+  "faculty": "Engineering",
+  "code": "CSC"
+}
+```
+
+#### PATCH /api/admin/departments/<dept_id>
+
+Update a department.
+
+#### DELETE /api/admin/departments/<dept_id>
+
+Soft-delete (deactivate) a department.
+
+#### POST /api/admin/departments/<dept_id>/restore
+
+Restore a deactivated department.
+
+---
+
+## 31. Academic Levels
+
+**Prefix:** `/api/academic-levels`
+
+---
+
+### GET /api/academic-levels
+
+List all active academic levels (100L, 200L, etc.). Public.
+
+---
+
+### GET /api/academic-levels/<level_id>
+
+Get an academic level by ID. Public.
+
+---
+
+### Academic Level Admin *(Admin)*
+
+#### GET /api/admin/academic-levels
+
+List all academic levels (including inactive).
+
+#### POST /api/admin/academic-levels
+
+Create a new academic level.
+
+```json
+{ "name": "100 Level", "code": "100L", "sort_order": 1 }
+```
+
+#### PATCH /api/admin/academic-levels/<level_id>
+
+Update an academic level.
+
+#### DELETE /api/admin/academic-levels/<level_id>
+
+Soft-delete an academic level.
+
+#### POST /api/admin/academic-levels/<level_id>/restore
+
+Restore a deactivated academic level.
+
+---
+
+## 32. Admin Gifts & System Settings
+
+**Prefix:** `/api/admin` | Admin role required.
+
+---
+
+### First-Order Gifts
+
+First-order gifts are automatically given to users placing their very first order (if `FIRST_ORDER_GIFT_ENABLED=true`).
+
+#### GET /api/admin/first-order-gifts
+
+List pending and fulfilled first-order gifts.
+
+| Query | Description |
+|-------|-------------|
+| `status` | `pending` | `fulfilled` |
+
+#### PATCH /api/admin/first-order-gifts/<gift_id>
+
+Mark a gift as fulfilled or update its status.
+
+```json
+{ "status": "fulfilled", "notes": "Hot dog included in order bag" }
+```
+
+---
+
+### System Settings
+
+Global runtime configuration — no code deploy required to change these values.
+
+#### GET /api/admin/settings
+
+List all system settings as key-value pairs.
+
+**Response 200:**
+```json
+[
+  { "key": "daily_checkin_hp", "value": 5, "description": "HP awarded per daily check-in" },
+  { "key": "free_side_options", "value": ["Fries", "Coleslaw", "Plantain", "Gizzard"] },
+  { "key": "hp_multiplier", "value": 1.0 },
+  { "key": "exclusive_spin_template_items", "value": [...] }
+]
+```
+
+#### POST /api/admin/settings
+
+Create a new system setting.
+
+```json
+{
+  "key": "daily_checkin_hp",
+  "value": 10,
+  "description": "HP awarded for daily check-in"
+}
+```
+
+#### PATCH /api/admin/settings/<key>
+
+Update a system setting value.
+
+```json
+{ "value": 10 }
+```
+
+**Commonly configured settings:**
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `daily_checkin_hp` | integer | HP per daily check-in |
+| `free_side_options` | JSON array | Available free side choices |
+| `exclusive_spin_template_items` | JSON array | Spin wheel prizes with weights |
+| `hp_multiplier` | float | Global HP earn multiplier |
+| `ordering_window_open` | string | Override ordering open time (HH:MM) |
+| `ordering_window_close` | string | Override ordering close time (HH:MM) |
+| `notification_gap_minutes` | integer | Min minutes between same-type notifications |
+| `notification_daily_cap` | integer | Max non-critical notifications per user/day |
+
+---
+
+## 33. Webhooks
+
+**Prefix:** `/api/webhooks`
+
+> **Never call these manually.** These endpoints are called by Paystack/Flutterwave only.
+> Verify HMAC signature is done automatically by the backend.
+
+---
+
+### POST /api/webhooks/paystack
+
+Handles Paystack payment events:
+- `charge.success` → credits wallet, updates order to `paid`
+- `transfer.success` → marks withdrawal as complete
+- `dedicatedaccount.assign` → stores virtual account details
+
+---
+
+### POST /api/webhooks/flutterwave
+
+Handles Flutterwave payment events (same logic as Paystack).
+
+---
+
+## 34. Health Check
+
+### GET /api/health
+
+Public health check — no auth required.
+
+**Response 200:**
 ```json
 {
   "api": "Holy Grills",
+  "version": "1.0.0",
   "status": "ok",
-  "checks": { "supabase": "connected" },
-  "timestamp": "2026-07-16T14:00:00Z"
-}
-```
-Alert if `supabase` is not `"connected"` or status code is not `200`.
-
----
-
-## Appendix: Guest vs Authenticated Order Comparison
-
-| Feature | Guest | Authenticated |
-|---|---|---|
-| Payment | `card` only | `wallet`, `card`, `split` |
-| HP earned | No | Yes (food HP, welcome bonus) |
-| Order history | Via `claim_token` only | Full history |
-| Squad orders | No | Yes |
-| Scheduled orders | No | Yes |
-| Promo codes | Yes | Yes |
-| Claim order later | — | `POST /orders/:id/claim` with `claim_token` |
-
----
-
-## 13. Database Schema Reference
-
-### Key Entity Relationships
-
-```
-profiles ──< orders >── order_items >── menu_items >── menu_categories
-profiles ──< hp_transactions
-profiles ──< wallet_transactions
-profiles ──< cart_items >── menu_items
-profiles ──< notifications
-profiles ──< event_registrations >── events
-profiles ──< reward_redemptions >── rewards
-profiles ──< marketplace_purchases >── marketplace_listings
-profiles ──< milestones (challenges/badges)
-profiles ──< order_locks
-orders   ──< squad_members >── profiles
-orders    ── delivery_batches >── riders
-```
-
-### Order Statuses — with UI Display & Colour
-
-| Value | Display Text | Suggested Colour | Notes |
-|---|---|---|---|
-| `received` | Received | `#F97316` Orange | Kitchen hasn't started |
-| `preparing` | Preparing | `#3B82F6` Blue | Kitchen working — no cancellation |
-| `ready` | Ready | `#10B981` Green | Waiting for rider |
-| `assigned` | Assigned | `#8B5CF6` Purple | Rider batch assigned |
-| `out_for_delivery` | Out for Delivery | `#06B6D4` Teal | Rider in transit |
-| `delivered` | Delivered | `#16A34A` Dark Green | Terminal — happy path |
-| `delivery_attempted` | Delivery Attempted | `#EF4444` Red | **urgency: high** — show modal |
-| `unclaimed` | Unclaimed | `#9CA3AF` Gray | Order not collected |
-| `cancelled` | Cancelled | `#EF4444` Red | Terminal |
-| `refunded` | Refunded | `#6B7280` Gray | Terminal |
-
-### HP Transaction Types — with UI Display
-
-| Type | Display Text | Notes |
-|---|---|---|
-| `earned` | HP Earned | From food orders, reviews, bonuses |
-| `spent` | HP Spent | Rewards, spin wheel, transfers out |
-| `expired` | HP Expired | After 120 days inactivity |
-| `transferred_in` | HP Received | P2P transfer received |
-| `transferred_out` | HP Sent | P2P transfer sent |
-| `pending` | HP Pending | Locked until order delivered |
-| `unlocked` | HP Unlocked | Pending released to active |
-
-### User Roles — with Access
-
-| Role | Display | Access |
-|---|---|---|
-| `student` | Student | Normal user — orders, HP, wallet, events |
-| `kitchen` | Kitchen Staff | + Kitchen queue management |
-| `rider` | Rider | + Delivery batch management |
-| `admin` | Admin | Full access including all management |
-| `super_admin` | Super Admin | Same as admin + role management |
-
-### Payment Methods
-
-| Value | Display | How It Works |
-|---|---|---|
-| `wallet` | Wallet | Deducted immediately from wallet balance |
-| `card` | Card | Paystack checkout → webhook confirms |
-| `split` | Wallet + Card | Wallet covers part; card covers the rest |
-
-### Delivery Types
-
-| Value | Display | Notes |
-|---|---|---|
-| `on_campus` | On Campus | Delivery to a hostel by UUID |
-| `off_campus` | Off Campus | Delivery to a gate; lat/lon used for fee |
-
-### Event Funding Sources
-
-| Value | Notes |
-|---|---|
-| `host-funded` | Event host pays for catering |
-| `hg-funded` | Holy Grills subsidises the event |
-
-### Marketplace Listing Types
-
-| Value | Display | Notes |
-|---|---|---|
-| `code` | Access Code | Delivers a digital code from inventory |
-| `service` | Service | Student-offered service |
-| `product` | Product | Physical product |
-| `experience` | Experience | Event / activity |
-
-### Reward Types
-
-| Value | Display | Notes |
-|---|---|---|
-| `voucher` | Voucher | Redeemable voucher code |
-| `free_item` | Free Item | Free menu item |
-| `discount` | Discount | % or flat discount on next order |
-| `experience` | Experience | Event / activity access |
-| `product` | Product | Physical product |
-
-### Challenge Time Windows
-
-| Value | Notes |
-|---|---|
-| `null` / absent | Permanent badge — earned once, never resets |
-| `weekly` | Resets every week |
-| `monthly` | Resets every month |
-
-### Enum Values — Complete Reference
-
-| Field | Values | Notes |
-|---|---|---|
-| `role` | `student` `admin` `kitchen` `rider` `super_admin` | — |
-| `order_status` | `received` `preparing` `ready` `assigned` `out_for_delivery` `delivered` `delivery_attempted` `unclaimed` `cancelled` `refunded` | See state machine in §6 |
-| `payment_method` | `wallet` `card` `split` | `split` = part wallet, rest card |
-| `delivery_type` | `on_campus` `off_campus` | — |
-| `listing_type` | `code` `service` `product` `experience` | Marketplace |
-| `listing_status` | `pending` `approved` `rejected` `draft` `active` `archived` | — |
-| `discount_type` | `percentage` `flat` | Promo codes |
-| `promo_scope` | `cart` `item` | Cart = whole order; item = per item |
-| `reward_type` (rewards) | `voucher` `free_item` `discount` `experience` `product` | — |
-| `reward_type` (order_locks) | `discount` `hp` | What the lock redeems |
-| `redemption_status` | `pending` `fulfilled` `rejected` | — |
-| `lock_status` | `active` `cancelled` `used` | — |
-| `hp_transaction_type` | `earned` `spent` `expired` `transferred_in` `transferred_out` `pending` `unlocked` | — |
-| `notification_channel` | `push` `in_app` `email` | — |
-| `batch_status` | `pending` `active` `completed` `cancelled` | Delivery batches |
-| `catering_status` | `pending` `reviewed` `confirmed` `rejected` | — |
-| `gift_status` | `pending` `claimed` `returned` | First-order gifts |
-| `challenge_type` | `one_time` `recurring` `daily` `weekly` `monthly` | Milestones |
-| `trigger_type` (milestones) | `orders_count` `hp_earned` `referrals_count` `reviews_count` `social_share` `social_follow` `streak_days` `wallet_topup_count` `order_streak_weeks` | — |
-| `time_window` (milestones) | `weekly` `monthly` or `null` | null = permanent badge |
-| `section_type` (storefront) | `hero` `banner` `promo` `faq` + any string | Not constrained by DB |
-| `platform` (push tokens) | `ios` `android` `web` | — |
-
-### TypeScript Interface Reference
-
-```typescript
-// Core entities — use as a starting point; extend with extra fields from the API
-interface User {
-  id: string;                    // UUID
-  email: string;
-  full_name: string;
-  phone?: string;
-  date_of_birth?: string;        // YYYY-MM-DD
-  role: 'student' | 'admin' | 'kitchen' | 'rider' | 'super_admin';
-  referral_code: string;
-  is_active: boolean;
-  hp_balance: { active: number; pending: number; total: number };
-  tier: { name: string; slug: string; multiplier: number };
-  wallet: { balance: number; virtual_account?: VirtualAccount };
-}
-
-interface VirtualAccount {
-  account_number: string;
-  bank_name: string;
-  account_name: string;
-}
-
-interface Order {
-  id: string;
-  status: OrderStatus;
-  total_amount: number;
-  delivery_fee: number;
-  hp_discount: number;
-  payment_method: 'wallet' | 'card' | 'split';
-  delivery_type: 'on_campus' | 'off_campus';
-  is_scheduled: boolean;
-  is_squad_order: boolean;
-  squad_name?: string;
-  claim_token?: string;          // guest orders only
-  items: OrderItem[];
-  created_at: string;            // ISO 8601
-}
-
-type OrderStatus =
-  | 'received' | 'preparing' | 'ready' | 'assigned'
-  | 'out_for_delivery' | 'delivered' | 'delivery_attempted'
-  | 'unclaimed' | 'cancelled' | 'refunded';
-
-interface OrderItem {
-  menu_item_id: string;
-  name: string;
-  quantity: number;
-  unit_price: number;
-  notes?: string;
-  addons: AddonOption[];
-}
-
-interface MenuItem {
-  id: string;
-  name: string;
-  description?: string;
-  price: number;                 // NGN
-  hp_earn_value: number;
-  is_available: boolean;
-  is_featured: boolean;
-  is_sold_out: boolean;
-  remaining_today?: number;      // null = unlimited
-  image_url?: string;
-  category_id: string;
-  addon_groups: AddonGroup[];
-}
-
-interface AddonGroup {
-  id: string;
-  name: string;
-  min_select: number;
-  max_select: number;
-  is_required: boolean;          // min_select > 0
-  options: AddonOption[];
-}
-
-interface AddonOption {
-  id: string;
-  name: string;
-  price_delta: number;           // extra cost in NGN
-}
-
-interface HPBalance {
-  active: number;
-  pending: number;
-  total: number;
-  pending_ceiling: number;
-  tier: { name: string; multiplier: number };
-}
-
-interface Notification {
-  id: string;
-  type: string;                  // see §15
-  channel: 'push' | 'in_app' | 'email';
-  title: string;
-  body: string;
-  is_read: boolean;
-  action_url?: string;           // deep-link
-  metadata: {
-    reference_id?: string;       // UUID of the related entity
-    reference_type?: string;     // e.g. 'order', 'hp', 'event'
-    urgency?: 'high';            // only set for delivery_attempted
-  };
-  created_at: string;
-}
-
-interface MarketplaceListing {
-  id: string;
-  title: string;
-  description?: string;
-  listing_type: 'code' | 'service' | 'product' | 'experience';
-  price: number;
-  hp_price?: number;
-  image_url?: string;
-  is_active: boolean;
-  codes_remaining?: number;      // for listing_type = 'code'
-}
-
-interface Reward {
-  id: string;
-  title: string;
-  description?: string;
-  reward_type: 'voucher' | 'free_item' | 'discount' | 'experience' | 'product';
-  hp_cost: number;
-  stock?: number;                // null = unlimited
-  image_url?: string;
-  is_active: boolean;
-}
-
-interface OrderLock {
-  id: string;
-  locked_date: string;           // YYYY-MM-DD
-  reward_type: 'discount' | 'hp';
-  discount_pct?: number;
-  reward_hp_amount?: number;
-  status: 'active' | 'cancelled' | 'used';
-  reschedule_count: number;      // max 1 reschedule
+  "checks": {
+    "supabase": "connected",
+    "redis": "connected"
+  }
 }
 ```
 
----
-
-## 14. UI/UX Flow Diagrams
-
-### 14.1 Ordering Flow — Gated Checks
-
-```
-User opens app
-  │
-  ├─ GET /storefront/operating-hours
-  │    └─ Kitchen closed? → Show "Ordering is closed" banner; hide Add-to-Cart
-  │
-  ├─ GET /menu/kitchen-capacity
-  │    └─ remaining = 0? → Show "Sold out for today" state; disable checkout
-  │
-  ├─ GET /menu/items (check each item's is_sold_out / is_available)
-  │    └─ is_sold_out=true → grey card + "Sold out" badge; block add-to-cart
-  │    └─ is_available=false → same treatment (admin-disabled)
-  │
-  └─ Checkout → GET /orders/delivery-windows/status
-       └─ Not open → block place-order button with reason string
-```
-
-### 14.2 Payment Flow (Card / Wallet / Split)
-
-```
-[Checkout]
-  │
-  ├─ payment_method = "wallet"
-  │    └─ POST /orders → immediate debit; go to order tracking
-  │
-  ├─ payment_method = "card"
-  │    └─ POST /wallet/fund/card { amount, callback_url } (for wallet top-up)
-  │    │   OR pass paystack_reference directly on POST /orders
-  │    └─ Redirect → Paystack checkout URL
-  │         └─ Paystack webhook fires → wallet credited / order confirmed
-  │         └─ App polls GET /orders/:id until status ≠ 'received'
-  │
-  └─ payment_method = "split"
-       ├─ wallet_amount = partial amount from wallet
-       ├─ rest charged via Paystack (paystack_reference required)
-       └─ Both verified server-side before order confirmed
-```
-
-### 14.3 Guest Checkout Flow
-
-```
-[No auth token in request]
-  │
-  ├─ Include: guest_name, guest_phone
-  ├─ payment_method must be "card" (wallet/split not allowed for guests)
-  ├─ Response includes claim_token
-  │
-  ├─ Guest tracks order: GET /orders/:id?claim_token=<token>
-  │
-  └─ Later (logged-in user wants history):
-       POST /orders/:id/claim { claim_token }
-       → order transferred to authenticated account
-```
-
-### 14.4 Squad Order Flow
-
-```
-POST /orders { squad_name, squad_emails: ["a@futa.edu.ng", "b@futa.edu.ng"] }
-  │
-  ├─ Server notifies each email (push if registered, email invite if not)
-  ├─ squad_members can be added later via POST /orders/:id/squad-members
-  │
-  ├─ When order delivered:
-  │    └─ POST /orders/:id/share-hp → HP split equally among squad members
-  │
-  └─ Show "Squad Order" badge on order card
-       └─ Trigger squad popup prompt when user has ≥2 friends registered
-```
-
-### 14.5 Squad Popup Trigger Logic
-
-Show squad order promotional popup when **all** of the following are true:
-1. User has placed ≥1 order before
-2. User has ≥2 contacts who are also registered (check referral count)
-3. Current cart has ≥3 items (squad discount eligible)
-4. User has not dismissed the popup in the last 7 days (client-side flag)
-
-### 14.6 HP Unlock Flow (Pending → Active)
-
-```
-Order placed → HP earned lands in "pending" pool
-  │
-  ├─ Order status = "delivered" → HP automatically unlocked to "active"
-  │
-  ├─ HP expiry warning at day 70, 95, 118 of inactivity
-  │    └─ Push type: "winback" / "hp_decay_warning"
-  │
-  └─ HP expired (120 days inactivity) → type: "hp_decay_applied"
-       └─ 10%/month decay applied; user notified
-```
-
-### 14.7 Order Lock Flow
-
-```
-User picks a future date (locked_date)
-  │
-  ├─ reward_type = "discount": choose discount_pct (1–50%)
-  ├─ reward_type = "hp": choose reward_hp_amount
-  │
-  ├─ POST /order-locks → lock created, status = "active"
-  │
-  ├─ On locked_date:
-  │    └─ User places order → discount/HP applied automatically
-  │    └─ Lock status → "used"
-  │
-  ├─ Reschedule (once only):
-  │    └─ PATCH /order-locks/:id/reschedule { locked_date: "new-date" }
-  │    └─ reschedule_count becomes 1; further reschedules blocked
-  │
-  └─ Cancel: DELETE /order-locks/:id → status = "cancelled"
-```
-
-### 14.8 Kitchen Closed State
-
-Show a full-screen or sticky "Kitchen Closed" state when any of these is true:
-- `GET /storefront/operating-hours` → today's entry shows `is_open: false`
-- `GET /orders/delivery-windows/status` → `{ is_open: false, reason: "..." }`
-- `GET /menu/kitchen-capacity` → `{ remaining: 0 }`
-
-```
-Kitchen Closed UI:
-  ┌─────────────────────────────────┐
-  │  🍽️  We're closed right now     │
-  │                                 │
-  │  Ordering opens Mon–Fri 8am–4pm │
-  │                                 │
-  │  [ Set a scheduled order ]      │  ← link to scheduled order flow
-  │  [ Browse the menu ]            │  ← still show read-only menu
-  └─────────────────────────────────┘
-```
-
----
-
-## 15. Notification Payload Structures
-
-### Notification Object Shape
-
+**Response 503 (degraded):**
 ```json
 {
-  "id": "uuid",
-  "type": "order_ready",
-  "channel": "in_app",
-  "title": "Order Ready 🎉",
-  "body": "Your order is ready for collection.",
-  "is_read": false,
-  "action_url": "/orders/uuid",
-  "metadata": {
-    "reference_id": "order-uuid",
-    "reference_type": "order",
-    "urgency": null
-  },
-  "created_at": "2026-07-16T14:00:00Z"
+  "status": "degraded",
+  "checks": {
+    "supabase": "connected",
+    "redis": "error: Connection refused"
+  }
 }
 ```
 
-### `action_url` → Screen Mapping
+> Redis being unavailable is non-fatal (only Celery background jobs are affected). Supabase unavailable is critical.
 
-| `type` | `action_url` example | Target screen |
-|---|---|---|
-| `order_confirmed` `order_preparing` `order_ready` `order_assigned` `order_out_for_delivery` `order_delivered` `order_cancelled` `order_refunded` | `/orders/:order_id` | Order tracking |
-| `order_delivery_attempted` | `/orders/:order_id` | **urgency: high** — show immediately as modal |
-| `order_unclaimed` | `/orders/:order_id` | Order detail |
-| `hp_earned` `hp_unlocked` `hp_earned_*` | `/hp` | HP wallet |
-| `tier_upgrade` `tier_downgrade` `tier_grace_period` | `/hp/tier` | Tier progress |
-| `wallet_funded_card` `wallet_funded_bank` `wallet_funded` | `/wallet` | Wallet screen |
-| `birthday_bonus` | `/hp` | HP wallet |
-| `referral_hp_earned` `referral_milestone` | `/referrals` | Referrals screen |
-| `leaderboard_rank` `hall_of_fame` | `/leaderboard` | Leaderboard |
-| `squad_order` `squad_hp_split` `squad_order_ready` | `/orders/:order_id` | Squad order |
-| `event_registered` `event_checkin` | `/events/:event_id` | Event detail |
-| `challenge_complete` `challenge_progress` `badge_earned` | `/challenges` | Challenges |
-| `marketplace_purchase` `marketplace_access_code` | `/marketplace/purchases` | Marketplace purchases |
-| `reward_redeemed` `reward_fulfilled` | `/rewards/redemptions` | Redemptions |
-| `abandoned_cart` `abandoned_cart_nudge` | `/cart` | Cart |
-| `order_lock_reminder` `order_lock_redeemed_*` | `/order-locks` | Order locks |
-| `hp_decay_warning` `hp_decay_applied` | `/hp` | HP wallet |
-| `winback` | `/menu` | Menu (re-engagement) |
-| `first_order_gift` | `/orders/:order_id` | Order detail |
-| `review_request` | `/orders/:order_id/review` | Review screen |
-| `share_prompt` | `/orders/:order_id` | Share sheet |
-| `system_announcement` `blast` | `/` | Home |
+---
 
-### Priority Levels
+## 35. User Flow Guides
 
-| Priority | Types | UI behaviour |
-|---|---|---|
-| **Critical / high** | `order_delivery_attempted` | Show as modal/overlay immediately; do not suppress |
-| **Normal** | All order lifecycle, HP, wallet | Standard banner / badge |
-| **Low / background** | `abandoned_cart`, `winback`, `share_prompt` | Badge only; no banner |
+---
 
-> Push notifications are throttled: min `notification_gap_minutes` (default 30) between pushes, max `notification_daily_cap` (default 10) per user per day. This is server-controlled — no client logic needed.
+### 35a. Guest Order Flow
 
-### In-App Inbox Polling
+**Scenario:** A first-time visitor wants to order food without creating an account.
 
-```javascript
-// Poll every 30s while app is in foreground
-const POLL_MS = 30_000;
-const pollNotifications = () =>
-  fetch('/api/notifications?unread_only=true&limit=1', { headers: authHeaders })
-    .then(r => r.json())
-    .then(({ total }) => updateBadge(total));
+> **Important:** The menu must be publicly accessible (no auth gate) for guest orders to work. Lock only checkout behind auth, not the menu listing.
+
+```
+1. BROWSE MENU (no auth)
+   GET /api/menu/categories
+   GET /api/menu/items?available_only=true
+   GET /api/menu/items/<id>   ← shows variation groups + options
+
+2. CHECK DELIVERY OPTIONS (no auth)
+   GET /api/delivery/hostels
+   GET /api/delivery/gates
+   POST /api/delivery/calculate-fee   ← show delivery fee before checkout
+
+3. VALIDATE PROMO (optional, no auth)
+   POST /api/orders/validate-promo
+
+4. PLACE ORDER (no auth — guest fields required)
+   POST /api/orders
+   {
+     "items": [...],
+     "payment_method": "card",        ← wallet not available to guests
+     "delivery_type": "on_campus",
+     "delivery_location_id": "<hostel_id>",
+     "guest_name": "Amara",
+     "guest_phone": "08012345678",
+     "guest_email": "amara@example.com"
+   }
+   ← Response includes: order_id, claim_token, paystack_authorization_url
+
+5. PAYMENT (redirect to Paystack)
+   ← Redirect guest to paystack_authorization_url
+   ← Paystack webhook fires → order status → "paid" → "received"
+
+6. TRACK ORDER (no auth — use claim_token)
+   GET /api/orders/<order_id>?claim_token=abc123
+
+7. REGISTER & CLAIM ORDER (optional — converts guest to member)
+   POST /api/auth/register   ← creates account
+   POST /api/orders/<order_id>/claim   { "claim_token": "abc123" }
+   ← Order is now linked to the new account
+   ← First-order HP bonus may be awarded on delivery
 ```
 
 ---
 
-## 16. Image Upload Strategy
-
-### How it works
-
-The backend stores **only URLs** in `image_url` fields. It does **not** accept binary file uploads. The frontend is responsible for uploading images to a CDN (Cloudinary recommended) and then saving the resulting URL via the relevant API call.
+### 35b. Authenticated Student Flow — Full A-Z
 
 ```
-Frontend flow:
-  1. User selects image file
-  2. Frontend uploads directly to Cloudinary (unsigned upload or signed preset)
-  3. Cloudinary returns { secure_url, public_id }
-  4. Frontend sends secure_url in the API request body (e.g. PATCH /menu/items/:id { image_url })
+1. REGISTER / LOGIN
+   POST /api/auth/register  OR  POST /api/auth/login
+   ← Save access_token + refresh_token
+
+2. COMPLETE PROFILE (optional but recommended)
+   PATCH /api/auth/profile
+   POST /api/auth/addresses   ← save hostel address
+   POST /api/auth/device-token   ← register for push notifications
+
+3. DAILY CHECK-IN (each day)
+   POST /api/checkin
+   ← Awards 5 HP (configurable)
+   GET /api/checkin/history   ← render calendar with ✅ marks
+
+4. BROWSE MENU
+   GET /api/menu/categories
+   GET /api/menu/items
+   GET /api/menu/items/<id>   ← includes variation_groups
+
+5. MANAGE CART
+   POST /api/cart   ← add items with selected_variations
+   GET /api/cart    ← review cart
+   PATCH /api/cart/<id>   ← update quantity
+   DELETE /api/cart/<id>  ← remove item
+
+6. CHECKOUT
+   GET /api/delivery/hostels   ← pick delivery location
+   POST /api/delivery/calculate-fee   ← show fee
+   GET /api/hp/balance   ← show HP balance for HP discount
+
+   [If user has free side credits]
+   GET /api/free-sides   ← check credits
+   → Show pop-up: "You have 2 free side credits! Choose a free side:"
+   POST /api/free-sides/redeem   ← redeem before/at order creation
+
+   POST /api/orders
+   {
+     "items": [...],
+     "payment_method": "wallet",   ← or "card", "split"
+     "delivery_type": "on_campus",
+     "delivery_location_id": "<hostel_uuid>"
+   }
+
+7. TRACK ORDER
+   GET /api/orders/active   ← polling for live status
+   GET /api/orders/<id>
+   GET /api/orders/<id>/history   ← full status timeline
+
+8. POST-ORDER ACTIONS
+   POST /api/orders/<id>/review   ← leave rating
+   GET /api/hp/balance   ← see HP earned
+   GET /api/hp/unlock-history   ← see pending→active conversions
+
+9. REWARDS & SPENDING
+   GET /api/rewards   ← browse reward catalog
+   GET /api/hp/balance   ← check balance
+   POST /api/rewards/<id>/redeem   ← redeem with HP
+   POST /api/hp/flash-redeem/<id>   ← flash sale redemption
+
+10. LEADERBOARD & SPIN
+    GET /api/leaderboard   ← view rankings
+    GET /api/leaderboard/my-rank   ← see own position
+    GET /api/exclusive-spin   ← check spin credits (if top 10)
+    POST /api/exclusive-spin/spin   ← use spin credit
+
+11. REFERRALS
+    GET /api/auth/me   ← get referral_code
+    GET /api/referrals/stats   ← track progress
+    GET /api/referrals   ← list completed referrals
+
+12. CHALLENGES
+    GET /api/challenges   ← view active challenges
+    GET /api/challenges/my   ← track progress & badges
+    POST /api/challenges/<id>/complete   ← complete manual challenges
+
+13. EVENTS
+    GET /api/events   ← browse events
+    GET /api/events/<id>/tiers   ← view ticket tiers
+    POST /api/events/<id>/register   ← register + pay
+    POST /api/events/<id>/checkin   ← QR check-in at door
+
+14. WALLET MANAGEMENT
+    GET /api/wallet   ← balance + virtual account
+    POST /api/wallet/fund/card   ← top up with card
+    POST /api/wallet/fund/bank   ← get bank transfer details
+    GET /api/wallet/transactions   ← transaction history
+
+15. TOKEN REFRESH (automatic)
+    POST /api/auth/refresh   ← on every 401 response
 ```
-
-### Cloudinary Configuration (recommended)
-
-```javascript
-// Unsigned upload to a preset
-const uploadToCloudinary = async (file: File): Promise<string> => {
-  const form = new FormData();
-  form.append('file', file);
-  form.append('upload_preset', 'holy_grills_unsigned');  // create in Cloudinary dashboard
-  form.append('folder', 'holy_grills');
-
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-    { method: 'POST', body: form }
-  );
-  const data = await res.json();
-  return data.secure_url;  // pass this to the API
-};
-```
-
-### Supported `image_url` fields per entity
-
-| Entity | Field | API endpoint to update |
-|---|---|---|
-| Menu item | `image_url` | `PATCH /api/menu/items/:id` |
-| Menu category | `image_url` | `PATCH /api/menu/categories/:id` |
-| Reward | `image_url` | `PATCH /api/rewards/:id` |
-| Marketplace listing | `image_url` | `PATCH /api/marketplace/admin/listings/:id` |
-| Event | `image_url` | `PATCH /api/events/:id` |
-| Storefront banner | `image_url` | `PATCH /api/storefront/banners/:id` |
-| Early supporter | `photo_url` | `POST /api/storefront/early-supporters` |
-| User avatar | — | Not yet implemented; store in Cloudinary and reference via profile |
-
-### Recommended formats & limits
-
-| Constraint | Value |
-|---|---|
-| Accepted formats | JPEG, PNG, WebP |
-| Max file size (client-side enforce) | 5 MB |
-| Recommended dimensions | Square 1:1 for items/rewards; 16:9 for banners/events |
-| Delivery | Always use Cloudinary transformation URL for resizing: `c_fill,w_400,h_400,q_auto,f_auto` |
 
 ---
 
-## 17. Accessibility Requirements
-
-### Core Requirements (WCAG 2.1 AA)
-
-| Requirement | Implementation note |
-|---|---|
-| **Colour contrast** | Minimum 4.5:1 for body text, 3:1 for large text and UI components |
-| **Touch targets** | Minimum 44×44 pt (iOS) / 48×48 dp (Android) |
-| **Focus management** | After opening a modal/sheet, move focus to it; restore on close |
-| **Screen-reader labels** | Every icon-only button needs `accessibilityLabel` / `aria-label` |
-| **Dynamic type** | Support OS font size scaling; avoid fixed `px` font sizes |
-| **Loading states** | Announce loading start/end to screen readers (`aria-live="polite"`) |
-| **Error messages** | Associate errors with inputs (`aria-describedby` / `accessibilityHint`) |
-
-### HP & Wallet Displays
+### 35c. Admin Flow — Complete A-Z
 
 ```
-// BAD: screen reader reads "1250" with no context
-<Text>{hpBalance.active}</Text>
+1. LOGIN as admin
+   POST /api/auth/login   { "email": "admin@holygrills.ng", "password": "..." }
 
-// GOOD
-<Text accessibilityLabel={`${hpBalance.active} Holy Points active`}>
-  {hpBalance.active.toLocaleString()} HP
-</Text>
+2. MENU MANAGEMENT
+   # Categories
+   POST /api/menu/categories   ← create category
+   PATCH /api/menu/categories/<id>   ← update
+   DELETE /api/menu/categories/<id>   ← deactivate
+
+   # Items
+   POST /api/menu/items   ← create item
+   PATCH /api/menu/items/<id>   ← update price/availability
+   POST /api/menu/items/<id>/archive   ← archive
+
+   # Variations (e.g., "Choose your side")
+   POST /api/menu/items/<id>/variation-groups   ← create group
+   POST /api/menu/items/<id>/variation-groups/<gid>/options   ← add options
+   DELETE /api/menu/items/<id>/variation-groups/<gid>   ← remove group
+
+   # Daily capacity
+   PATCH /api/menu/kitchen-capacity   { "capacity": 120 }
+
+3. ORDER MANAGEMENT
+   GET /api/admin/orders   ← list all orders with filters
+   PATCH /api/orders/<id>/status   ← update any order status
+
+4. DELIVERY SETUP
+   POST /api/admin/delivery-windows   ← create today's windows
+   POST /api/admin/delivery-batches   ← assign riders to zones
+   PATCH /api/admin/delivery-batches/<id>   ← add orders to batch
+
+5. USER MANAGEMENT
+   GET /api/admin/users   ← list with role/tier filters
+   GET /api/admin/users/<id>   ← full profile
+   PATCH /api/admin/users/<id>/role   ← promote to kitchen/rider/admin
+   POST /api/admin/users/<id>/deactivate   ← block account
+   POST /api/admin/hp/bulk-grant   ← award HP to multiple users
+
+6. PROMO CODES
+   POST /api/admin/promo-codes   ← create promo
+   PATCH /api/admin/promo-codes/<id>   ← update/disable
+
+7. EVENTS
+   POST /api/events   ← create event
+   POST /api/events/<id>/tiers   ← add ticket tiers (VIP, Regular, etc.)
+   POST /api/events/<id>/qr   ← generate check-in QR
+   GET /api/events/<id>/registrants   ← view all attendees
+   GET /api/events/<id>/registrants?format=csv   ← download CSV
+   POST /api/events/<id>/send-registrants-to-host   ← email list to host
+
+8. REWARDS & HP
+   POST /api/rewards   ← create reward
+   GET /api/rewards/admin/redemptions   ← pending redemptions
+   PATCH /api/rewards/admin/redemptions/<id>   ← mark fulfilled
+
+9. MARKETPLACE
+   POST /api/marketplace/admin/listings   ← create listing
+   POST /api/marketplace/admin/codes/<id>   ← upload access codes
+
+10. NOTIFICATION BLASTS
+    POST /api/notifications/blasts   ← send to all users
+    GET /api/notifications/blasts   ← view history
+
+11. FEATURE FLAGS
+    GET /api/admin/feature-flags   ← view all flags
+    PATCH /api/admin/feature-flags/<name>   { "is_active": true/false }
+
+12. SYSTEM SETTINGS
+    GET /api/admin/settings
+    PATCH /api/admin/settings/<key>   ← update runtime config
+    # e.g., daily_checkin_hp, free_side_options, spin wheel prizes
+
+13. LEADERBOARD PRIZES (after monthly reset)
+    GET /api/admin/leaderboard-prizes?status=pending   ← see who won
+    PATCH /api/admin/leaderboard-prizes/<id>   { "status": "fulfilled" }
+
+14. HALL OF FAME REWARDS
+    GET /api/admin/hall-of-fame-rewards
+    PATCH /api/admin/hall-of-fame-rewards/<id>   { "status": "box_prepared" }
+
+15. ANALYTICS
+    GET /api/analytics/dashboard   ← top-level summary
+    GET /api/analytics/sales?start_date=2026-08-01
+    GET /api/analytics/export?type=orders
+
+16. CRON JOBS (manual trigger)
+    POST /api/admin/cron/birthday_hp
+    POST /api/admin/cron/leaderboard_reset
+    GET /api/admin/cron/status
 ```
-
-### Order Status Announcements
-
-When order status changes (detected via polling), announce it via `AccessibilityInfo.announceForAccessibility('Your order is now being prepared.')` (React Native) or an `aria-live` region (web).
-
-### Colour Usage
-
-Do not convey meaning through colour alone. Always pair colour with an icon or text label:
-- Order status chips: colour + status text
-- HP tier badge: colour + tier name
-- Pending vs active HP: never distinguish by colour alone — use labels
 
 ---
 
-## 18. Analytics & Tracking
+### 35d. Kitchen Flow — Complete A-Z
 
-### Recommended Screen Views
-
-Track these events in your analytics tool (Mixpanel, Amplitude, Firebase, etc.):
-
-| Event name | Trigger | Key properties |
-|---|---|---|
-| `screen_home` | Home tab focused | `user_tier`, `hp_balance` |
-| `screen_menu` | Menu opened | — |
-| `screen_menu_item` | Item detail viewed | `item_id`, `item_name`, `price` |
-| `screen_cart` | Cart opened | `item_count`, `subtotal` |
-| `screen_checkout` | Checkout started | `payment_method`, `delivery_type` |
-| `screen_order_tracking` | Tracking screen opened | `order_status` |
-| `screen_hp_wallet` | HP wallet opened | `active_hp`, `pending_hp`, `tier_slug` |
-| `screen_rewards` | Rewards browser opened | — |
-| `screen_leaderboard` | Leaderboard opened | `period_type` |
-| `screen_events` | Events list opened | — |
-| `screen_marketplace` | Marketplace opened | — |
-| `screen_challenges` | Challenges opened | — |
-
-### Recommended Conversion Events
-
-| Event name | Trigger |
-|---|---|
-| `order_started` | User taps "Place Order" |
-| `order_completed` | API returns `201` on `POST /orders` |
-| `payment_failed` | API returns error on card payment |
-| `promo_applied` | Promo code validated successfully |
-| `hp_earned` | `hp_earned` notification received |
-| `reward_redeemed` | `POST /rewards/:id/redeem` → 200 |
-| `spin_wheel_spun` | `POST /hp/spin` → 200 |
-| `event_registered` | `POST /events/:id/register` → 200 |
-| `referral_shared` | User copies/shares referral link |
-| `squad_created` | Order created with `squad_emails` |
-| `challenge_completed` | `POST /challenges/:id/complete` → 200 |
-
-### User Properties to Set
-
-```javascript
-analytics.identify(userId, {
-  role:          user.role,
-  tier:          user.tier.slug,
-  hp_active:     user.hp_balance.active,
-  hp_pending:    user.hp_balance.pending,
-  wallet_bal:    user.wallet.balance,
-  referral_code: user.referral_code,
-  created_at:    user.created_at,
-});
 ```
+1. LOGIN as kitchen staff
+   POST /api/auth/login   { "email": "kitchen@holygrills.ng", "password": "..." }
 
-### Conversion Funnels to Monitor
+2. CHECK LIVE QUEUE
+   GET /api/kitchen/queue
+   ← Returns: received[], preparing[], ready[]
+   ← Poll every 30 seconds or use WebSocket if available
 
-1. **Checkout funnel:** Menu → Item detail → Add to Cart → Checkout → Order confirmed
-2. **HP engagement:** HP balance viewed → Reward browsed → Reward redeemed
-3. **Referral funnel:** Referral link copied → New user registered → First order delivered
+3. CHECK SCHEDULED ORDERS (before opening)
+   GET /api/kitchen/scheduled
+   ← Shows orders placed for future windows
+
+4. CHECK TODAY'S WINDOWS
+   GET /api/kitchen/windows
+   ← Shows order counts per delivery window
+
+5. PROCESS ORDERS
+   # When starting to cook:
+   PATCH /api/orders/<id>/status   { "status": "preparing" }
+
+   # When done cooking:
+   PATCH /api/orders/<id>/status   { "status": "ready" }
+
+6. MANAGE CAPACITY
+   PATCH /api/kitchen/settings   { "daily_order_capacity": 120 }
+   # Or mark items unavailable:
+   PATCH /api/menu/items/<id>   { "is_available": false }
+
+7. BATCH SUMMARY (prepare per window)
+   GET /api/kitchen/batch-summary/<window_id>
+   ← Shows total quantities of each item for the window
+
+8. FREE SIDE TAG
+   ← Orders with redeemed free sides have a "🏆 Reward" tag in the queue
+   ← Kitchen sees side_choice in order items
+
+9. UPDATE SETTINGS
+   PATCH /api/kitchen/settings   { "prep_time_minutes": 20 }
+
+10. METRICS
+    GET /api/kitchen/metrics   ← throughput, avg prep time
+```
 
 ---
 
-## 19. Local Storage & Caching Strategy
+### 35e. Rider Flow — Complete A-Z
 
-### Extended Reference
-
-| Data | Storage location | TTL / Invalidation |
-|---|---|---|
-| `access_token` | Memory (in-app state) | Clear on 401 refresh failure |
-| `refresh_token` | SecureStorage / HttpOnly cookie | Clear on logout / logout-all-devices |
-| User profile | SecureStorage or app cache | Refresh on app resume; clear on logout |
-| HP balance | App state / memory | Cache 60s; refresh in background |
-| Menu items | App cache | 5 min TTL; invalidate on admin update |
-| Menu categories | App cache | 10 min TTL |
-| Delivery hostels/gates | App cache | 30 min TTL |
-| Notification badge count | App state | Poll every 30s; clear on mark-read-all |
-| Active order status | App state | Poll every 15s while tracking screen open |
-| Cart | **No caching** | Always fetch from `GET /api/cart` |
-| HP transactions | On-demand | Do not cache; always fetch fresh |
-| Leaderboard | App cache | 2 min TTL |
-| Squad popup dismissed | SecureStorage | 7-day expiry |
-| Ordering hours | App cache | 5 min TTL |
-
-### Token Rotation Pattern
-
-```javascript
-const apiFetch = async (url: string, opts: RequestInit = {}) => {
-  let res = await fetch(url, withAuth(opts, accessToken));
-  if (res.status === 401) {
-    const { access_token, refresh_token } = await rotateTokens(refreshToken);
-    saveTokens(access_token, refresh_token);
-    res = await fetch(url, withAuth(opts, access_token));  // retry once
-  }
-  return res;
-};
 ```
+1. LOGIN as rider
+   POST /api/auth/login   { "email": "rider@holygrills.ng", "password": "..." }
 
-### What NOT to Cache
+2. SET AVAILABILITY
+   PATCH /api/riders/availability   { "is_available": true }
 
-- **Cart contents** — the backend is the source of truth; concurrent sessions can modify it.
-- **HP balance for spend decisions** — always re-fetch before showing a "Redeem" button to avoid showing spendable balance that has already been used.
-- **Order status** — never display a cached status as final; always confirm with server.
-- **Wallet balance before payment** — fetch fresh at checkout to prevent over-spend errors.
+3. GET ASSIGNED BATCH
+   GET /api/riders/my-batch
+   ← Shows all orders in the batch with addresses
+
+4. PICK UP FROM KITCHEN
+   # For each order:
+   POST /api/riders/orders/<id>/pickup
+   ← Status → out_for_delivery
+
+5. DELIVER
+   # Get customer contact if needed:
+   GET /api/riders/call/<order_id>   ← returns customer phone
+
+   # Mark delivered:
+   POST /api/riders/orders/<id>/deliver   { "notes": "Delivered at door" }
+   ← Status → delivered
+   ← Customer gets push notification + HP awarded
+
+6. DELIVERY ATTEMPT (customer unavailable)
+   POST /api/riders/orders/<id>/attempt   { "notes": "Called twice, no answer" }
+   ← Status → delivery_attempted
+
+7. VIEW HISTORY & EARNINGS
+   GET /api/riders/history
+   GET /api/riders/stats
+   GET /api/riders/earnings
+
+8. GO OFFLINE
+   PATCH /api/riders/availability   { "is_available": false }
+```
 
 ---
 
-## 20. Feature Flags
+## Appendix A — HTTP Status Code Summary
 
-### How Feature Flags Work
-
-Feature flags live in two places:
-1. **Environment variables** — set at deploy time; require restart to change.
-2. **`system_settings` DB table** — live-editable via `PATCH /api/admin/settings/:key` without restart.
-
-DB settings override env vars at runtime.
-
-### Current Flags (Admin-Configurable)
-
-| Setting key | Effect when false/0 | Default | DB override |
-|---|---|---|---|
-| `ordering_window_open_time` | — | `08:00` (WAT) | Yes |
-| `ordering_window_close_time` | — | `16:00` (WAT) | Yes |
-| `squad_order_enabled` | Squad order fields ignored | `true` | Yes |
-| `hp_multiplier_active` | HP earn rate at 1× | `1` | Yes |
-| `spin_prizes` | JSON array of wheel prizes | Built-in defaults | Yes |
-| `monthly_pending_cap` | Monthly free-activity HP cap | `800` | Yes |
-| `min_topup_amount` | Minimum wallet top-up | `500` NGN | Yes |
-| `hp_transfer_min_orders` | Min completed orders to send HP | `3` | Yes |
-| `order_lock_max_discount` | Max % discount on order locks | `50` | Yes |
-| `notification_gap_minutes` | Min minutes between pushes | `30` | Yes |
-| `graduation_min_level` | Min academic level for graduation HP | `400` | Yes |
-
-### Checking Flag State (Frontend)
-
-Call `GET /api/admin/settings` (admin only) or check the relevant API response for the flag. Non-admin screens should derive state from API behaviour:
-- If `POST /orders` returns `400` with `"Squad orders are disabled"` → squad feature is off.
-- If ordering window is closed → `GET /orders/delivery-windows/status` returns `{ is_open: false }`.
-- If HP multiplier is active → `GET /hp/balance` tier object includes `multiplier > 1`.
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `201` | Created |
+| `400` | Bad request (validation error — check `error` field) |
+| `401` | Unauthorized — missing or expired token |
+| `403` | Forbidden — authenticated but wrong role |
+| `404` | Not found |
+| `409` | Conflict (e.g., already checked in today) |
+| `422` | Unprocessable entity |
+| `429` | Rate limited — slow down and retry |
+| `500` | Internal server error |
+| `502` | Upstream error (Resend/Paystack/OneSignal) |
+| `503` | Service degraded (Supabase/Redis unreachable) |
 
 ---
 
-## 21. Testing Requirements
+## Appendix B — Role Reference
 
-### API Contract Tests (Frontend)
-
-Before shipping any screen, verify these contracts locally against the staging API:
-
-| Check | How |
-|---|---|
-| 401 token expiry triggers refresh | Manually expire token in SecureStorage; confirm 401 → refresh → retry |
-| 429 rate limit displays user-friendly message | Rapid repeated requests to `/auth/login` |
-| Kitchen closed state shows on Home | Call `PATCH /api/admin/settings/ordering_window_close_time` → `00:00` |
-| Sold-out item blocks add-to-cart | Set a menu item `is_available: false` via `PATCH /api/menu/items/:id` |
-| Guest checkout claim flow | Full guest → login → claim flow end-to-end |
-| HP pending never shows as spendable | Place order, check HP screen before delivery |
-| Optimistic UI rollback on error | Network fail after cart add; confirm rollback |
-
-### End-to-End Smoke Tests (CI)
-
-The backend ships with `scripts/test_e2e.py`. Run it against staging after each deploy:
-
-```bash
-python scripts/test_e2e.py
-```
-
-All 9 sections (register, menu, cart, order, HP, wallet, events, marketplace, admin) should pass before a frontend release.
-
-### Accessibility Audit
-
-Before each major release, run an accessibility audit:
-1. Enable TalkBack (Android) / VoiceOver (iOS) and navigate each screen by swipe only.
-2. Verify every interactive element is reachable and labelled.
-3. Run Lighthouse accessibility audit (score ≥ 90) on the web version.
+| Role | Access |
+|------|--------|
+| `student` | Own orders, HP, wallet, events, marketplace, rewards |
+| `kitchen` | Order queue, status updates, kitchen settings |
+| `rider` | Delivery batch, order status, rider stats |
+| `admin` | Everything above + user management, analytics, system settings |
 
 ---
 
-## 22. Dependency Versions
+## Appendix C — HP Economy Reference
 
-### Backend (for frontend team awareness)
-
-| Component | Version |
-|---|---|
-| Python | 3.11+ |
-| Flask | 3.x |
-| Supabase | PostgREST v12 (via `supabase-py`) |
-| Paystack | REST API v2 |
-| Redis | 7.x (Celery broker) |
-| JWT | HS256 (access + refresh tokens) |
-
-### Frontend Recommendations
-
-| Library | Purpose | Notes |
-|---|---|---|
-| `react-query` / `@tanstack/query` | Server state, polling, caching | Set `staleTime: 60_000` for menu/HP |
-| `axios` / native `fetch` | HTTP client | Intercept 401 for token refresh |
-| `zustand` / `redux-toolkit` | Auth/cart state | Do not put cart in store — always from server |
-| `react-native-push-notification` | FCM/APNs device token | Register on login; send to `/auth/device-token` |
-| `@notifee/react-native` | Local notification display | Handle foreground push payloads |
-| `cloudinary-react` / `cloudinary-react-native` | Image upload | Direct upload to Cloudinary before saving URL |
-| `react-native-secure-storage` | Token persistence | Use for refresh_token storage |
-
-### API Versioning
-
-The current API has no version prefix — all routes are `/api/...`. A breaking change will be communicated via a new base path (`/api/v2/...`). Monitor the `CHANGELOG.md` (backend repo) before each frontend release.
+| Source | HP Type | Amount |
+|--------|---------|--------|
+| Food order | Pending | 1 HP per ₦10 spent |
+| Order delivery (unlock) | Active | 30% of food spend unlocks pending HP |
+| Welcome bonus (first order) | Active | `WELCOME_BONUS_HP` (default 50) |
+| Daily check-in | Active | `daily_checkin_hp` setting (default 5) |
+| Event check-in | Active | `EVENT_CHECKIN_HP` (default 40) |
+| Birthday | Active | `BIRTHDAY_HP` (default 150) |
+| Referral | Active | `REFERRAL_HP` (default 75) |
+| Order review | Active | `REVIEW_HP` (default 20) |
+| Wallet top-up | Active | `WALLET_TOPUP_HP` (default 50 per ≥₦3000) |
+| Social share | Active | `SOCIAL_SHARE_HP` (default 25) |
+| Graduation | Active | 1,000 HP (one-time) |
+| Signup bonus | Active | `SIGNUP_BONUS_HP` (default 0) |
+| Exclusive spin jackpot | Active | Up to 750 HP |
+| HP bundle purchase | Active | Bundle amount |
 
 ---
 
-## 23. Theme & Brand Guidelines
+## Appendix D — Resend Email Setup Checklist
 
-### Brand Identity
-
-| Element | Value |
-|---|---|
-| **App name** | Holy Grills |
-| **Tagline** | Holy Grills FUTA |
-| **Target audience** | FUTA students and staff |
-| **Tone** | Energetic, warm, campus-culture aware |
-| **Currency** | Nigerian Naira (₦) — display with ₦ symbol, not "NGN" |
-| **Language** | English (Nigerian informal register acceptable in copy) |
-
-### Colour Palette
-
-#### Primary
-#### Order Status Colours
-
-| Status | Hex | Tailwind / equivalent |
-|---|---|---|
-| `received` | `#F97316` | `orange-500` |
-| `preparing` | `#3B82F6` | `blue-500` |
-| `ready` | `#10B981` | `emerald-500` |
-| `assigned` | `#8B5CF6` | `violet-500` |
-| `out_for_delivery` | `#06B6D4` | `cyan-500` |
-| `delivered` | `#16A34A` | `green-700` |
-| `delivery_attempted` | `#EF4444` | `red-500` — **high urgency** |
-| `unclaimed` | `#9CA3AF` | `gray-400` |
-| `cancelled` | `#EF4444` | `red-500` |
-| `refunded` | `#6B7280` | `gray-500` |
-
-#### HP Tier Colours
-
-| Tier | Slug | Hex | Suggested gradient |
-|---|---|---|---|
-| Newbie | `newbie` | `#6B7280` | — |
-| Scout | `scout` | `#3B82F6` | `from-blue-400 to-blue-600` |
-| Regular | `regular` | `#10B981` | `from-emerald-400 to-emerald-600` |
-| Champion | `champion` | `#F59E0B` | `from-amber-400 to-orange-500` |
-| Legend | `legend` | `#8B5CF6` | `from-violet-400 to-purple-600` |
-
-### Typography
-
-| Usage | Weight | Notes |
-|---|---|---|
-| Screen titles | Bold (700) | — |
-| Section headers | SemiBold (600) | — |
-| Body text | Regular (400) | — |
-| Captions / labels | Regular (400) | Reduce opacity to 60% for secondary labels |
-| HP amounts | Bold (700) | Always show with "HP" suffix |
-| Currency amounts | SemiBold (600) | Prefix with ₦ symbol — e.g. `₦3,500` |
-
-> The backend does not prescribe a font family. Choose a clean sans-serif that renders well on Nigerian Android devices (Roboto or Inter are safe defaults).
-
-### Spacing & Touch Targets
-
-| Element | Minimum size |
-|---|---|
-| Touch targets | 44 × 44 pt (iOS) / 48 × 48 dp (Android) |
-| Card padding | 16 dp |
-| Section margin | 24 dp |
-| Bottom nav height | 56 dp |
-
-### Icons & Imagery
-
-- Use the **🌟** or **⚡** emoji sparingly in notification copy — already handled server-side.
-- Menu item images: display as **square 1:1**, rounded corners (8 dp), `c_fill,w_400,h_400,q_auto,f_auto` Cloudinary transformation.
-- Event banners: **16:9**, `c_fill,w_800,h_450,q_auto,f_auto`.
-- User avatars: circular crop, 48 × 48 dp thumbnail.
-
-### HP (Holy Points) Display Rules
-
-```
-✅  Active: 1,250 HP         (show in green / brand colour)
-🕐  Pending:   350 HP        (show in muted / amber — not yet spendable)
-
-Never show: Total: 1,600 HP  (misleading — pending isn't spendable)
-```
-
-- **Active HP** → spendable. Show prominently.
-- **Pending HP** → locked. Show separately with a lock icon or "unlocks on delivery" tooltip.
-- **Never merge** active + pending into a single balance figure.
-- HP amounts are always integers — no decimals.
-
-### Notification Visual Priority
-
-| Priority | Visual treatment |
-|---|---|
-| **Critical** (`order_delivery_attempted`) | Full-screen modal, red accent, cannot be dismissed without action |
-| **Normal** (order lifecycle, HP, wallet) | Standard push banner + in-app badge |
-| **Low** (`abandoned_cart`, `winback`, share prompts) | In-app badge only — no push banner |
-
-### Localisation Notes
-
-- All prices in **Nigerian Naira (₦)** — use `toLocaleString('en-NG')` or format manually.
-- Phone numbers displayed in `0XX XXXX XXXX` format.
-- Dates displayed in `DD MMM YYYY` format (e.g. "16 Jul 2026").
-- Times displayed in **WAT** (UTC+1) — the API returns UTC ISO-8601; convert on the client.
-- No multi-language requirement — English only for now.
+1. Create a [Resend](https://resend.com) account
+2. Add and verify your sending domain (e.g., `holygrills.ng`)
+3. Create an API key → copy it
+4. Set in Replit Secrets: `RESEND_API_KEY = re_...`
+5. Set sender identity in Secrets:
+   ```
+   EMAIL_FROM = noreply@holygrills.ng
+   EMAIL_FROM_NAME = Holy Grills
+   ```
+6. Verify with health check → `GET /api/health`
+7. Test by placing an order → confirmation email should arrive
 
 ---
 
-## Appendix B: Useful cURL Examples
-
-```bash
-BASE=http://localhost:5000/api
-TOKEN=eyJ...   # replace with your token
-
-# Register
-curl -X POST $BASE/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@futa.edu.ng","password":"Test123!","full_name":"Test User"}'
-
-# Get menu
-curl $BASE/menu/items
-
-# Place order (wallet payment)
-curl -X POST $BASE/orders \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"items":[{"menu_item_id":"uuid","quantity":1}],"payment_method":"wallet","delivery_type":"on_campus","delivery_location_id":"hostel-uuid"}'
-
-# Check HP balance
-curl $BASE/hp/balance -H "Authorization: Bearer $TOKEN"
-
-# Spin wheel
-curl -X POST $BASE/hp/spin -H "Authorization: Bearer $TOKEN"
-
-# Health check
-curl $BASE/health
-```
+*End of Holy Grills Complete API Guide — every endpoint, every flow.*

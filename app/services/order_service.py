@@ -356,13 +356,24 @@ def create_order(user_id: str | None, payload: dict) -> dict:
     subtotal = 0.0
     order_items = []
     for item in raw_items:
-        menu_item = (
-            db.table("menu_items")
-            .select("id,name,price,hp_earn_value,hp_earn,is_available,deleted_at,daily_limit")
-            .eq("id", item["menu_item_id"])
-            .single()
-            .execute()
-        )
+        try:
+            menu_item = (
+                db.table("menu_items")
+                .select("id,name,price,hp_earn_value,hp_earn,hp_multiplier,is_available,deleted_at,daily_limit")
+                .eq("id", item["menu_item_id"])
+                .single()
+                .execute()
+            )
+        except SupabaseError as exc:
+            if "hp_multiplier" not in str(exc):
+                raise
+            menu_item = (
+                db.table("menu_items")
+                .select("id,name,price,hp_earn_value,hp_earn,is_available,deleted_at,daily_limit")
+                .eq("id", item["menu_item_id"])
+                .single()
+                .execute()
+            )
         if not menu_item:
             raise ValueError(MSG.ORDER_MENU_ITEM_NOT_FOUND.format(id=item["menu_item_id"]))
         if not menu_item.get("is_available") or menu_item.get("deleted_at"):
@@ -408,12 +419,20 @@ def create_order(user_id: str | None, payload: dict) -> dict:
         addon_price_delta, resolved_addon_selections = _resolve_item_addons(db, menu_item, selected_addons)
 
         effective_unit_price = round(unit_price + variation_price_delta + addon_price_delta, 2)
+        try:
+            hp_multiplier = float(menu_item.get("hp_multiplier") or 1.0)
+        except (TypeError, ValueError):
+            hp_multiplier = 1.0
+        if hp_multiplier not in (0.5, 1.0, 2.0):
+            hp_multiplier = 1.0
+
         order_items.append({
             "menu_item_id": menu_item["id"],
             "name_snapshot": menu_item["name"],
             "quantity": qty,
             "price_snapshot": effective_unit_price,
             "hp_earn_snapshot": menu_item.get("hp_earn_value") or menu_item.get("hp_earn") or 0,
+            "hp_multiplier_snapshot": hp_multiplier,
             "line_total": round(effective_unit_price * qty, 2),
             "selected_variations": resolved_variations,
             "is_addon": False,
@@ -649,6 +668,32 @@ def create_order(user_id: str | None, payload: dict) -> dict:
 
     order = created[0] if isinstance(created, list) else created
     order_id = order["id"]
+    hp_preview_items = []
+    hp_preview_total = 0
+    hp_preview_base = 0
+    for line in order_items:
+        if line.get("is_addon") or not line.get("price_snapshot"):
+            continue
+        base_line = int(
+            float(line["price_snapshot"]) * int(line.get("quantity") or 1)
+            * current_app.config["HP_PER_NAIRA_FOOD"]
+        )
+        multiplier = float(line.get("hp_multiplier_snapshot") or 1.0)
+        line_hp = round(base_line * multiplier)
+        hp_preview_base += base_line
+        hp_preview_total += line_hp
+        hp_preview_items.append({
+            "menu_item_id": line.get("menu_item_id"),
+            "quantity": int(line.get("quantity") or 1),
+            "hp_multiplier": multiplier,
+            "base_hp": base_line,
+            "hp": line_hp,
+        })
+    order["hp_preview"] = {
+        "base_hp": hp_preview_base,
+        "total_hp": hp_preview_total,
+        "items": hp_preview_items,
+    }
     # Surface squad/scheduling info even when DB columns don't exist
     order.setdefault("is_squad_order", is_squad_order)
     order.setdefault("squad_discount_amount", squad_discount)
@@ -719,7 +764,17 @@ def create_order(user_id: str | None, payload: dict) -> dict:
     addon_selections_by_index = [oi.pop("_addon_selections", []) for oi in order_items]
     for oi in order_items:
         oi["order_id"] = order_id
-    inserted_items = db.table("order_items").insert(order_items)
+    try:
+        inserted_items = db.table("order_items").insert(order_items)
+    except SupabaseError as exc:
+        # Keep local/pre-migration environments usable until the additive
+        # migration has been applied; production uses the snapshot column.
+        if "hp_multiplier_snapshot" not in str(exc):
+            raise
+        inserted_items = db.table("order_items").insert([
+            {k: v for k, v in row.items() if k != "hp_multiplier_snapshot"}
+            for row in order_items
+        ])
     if not isinstance(inserted_items, list):
         inserted_items = [inserted_items] if inserted_items else []
 
@@ -928,18 +983,38 @@ def _handle_delivery_rewards(order: dict):
     tier = tier_info.get("tier") or {}
     tier_slug = tier.get("slug", "ember")
 
+    db = get_db()
+    order_items = order.get("order_items")
+    if not isinstance(order_items, list):
+        try:
+            order_items = (
+                db.table("order_items")
+                .select("price_snapshot,quantity,hp_earn_snapshot,hp_multiplier_snapshot,is_addon")
+                .eq("order_id", order_id)
+                .execute()
+            ) or []
+        except SupabaseError as exc:
+            if "hp_multiplier_snapshot" not in str(exc):
+                raise
+            order_items = (
+                db.table("order_items")
+                .select("price_snapshot,quantity,hp_earn_snapshot,is_addon")
+                .eq("order_id", order_id)
+                .execute()
+            ) or []
+
     hp_result = hp_service.award_food_order_hp(
         user_id=user_id,
         order_id=order_id,
         order_total=subtotal,
         tier_slug=tier_slug,
+        order_items=order_items,
     )
 
     welcome_result = hp_service.award_welcome_bonus(user_id, order_id)
 
     tier_change = hp_service.recalculate_tier(user_id)
 
-    db = get_db()
     order_updates = {
         "hp_earned": hp_result["total_hp"],
         "hp_credited_at": datetime.now(timezone.utc).isoformat(),
@@ -991,22 +1066,6 @@ def _handle_delivery_rewards(order: dict):
         process_order_streak(user_id, order_id)
     except Exception as _se:
         logger.warning("_handle_delivery_rewards: streak hooks failed for %s: %s", user_id, _se)
-
-    # Fire first_order badge trigger
-    try:
-        from app.services.milestone_service import check_milestone_trigger
-        delivered_count_rows = (
-            get_db().table("orders")
-            .select("id")
-            .eq("user_id", user_id)
-            .eq("status", "delivered")
-            .execute()
-        ) or []
-        delivered_count = len(delivered_count_rows)
-        check_milestone_trigger(user_id, "first_order", delivered_count)
-        check_milestone_trigger(user_id, "order_count", delivered_count)
-    except Exception as _me:
-        logger.warning("_handle_delivery_rewards: milestone trigger failed for %s: %s", user_id, _me)
 
     _trigger_referral_completion(user_id, order_id)
 

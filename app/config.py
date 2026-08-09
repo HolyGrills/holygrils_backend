@@ -32,11 +32,19 @@ class Config:
     FLUTTERWAVE_SECRET_KEY = os.environ.get("FLUTTERWAVE_SECRET_KEY", "")
     FLUTTERWAVE_WEBHOOK_SECRET = os.environ.get("FLUTTERWAVE_WEBHOOK_SECRET", "")
 
-    # Email — OneSignal
-    ONESIGNAL_APP_ID = os.environ.get("ONESIGNAL_APP_ID", "")
-    ONESIGNAL_API_KEY = os.environ.get("ONESIGNAL_API_KEY", "")
+    # Cloudinary — used by the admin-only direct-upload signature endpoint.
+    CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+    CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
+    CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+
+    # Email — Resend (primary); OneSignal kept for push-only
+    RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
     EMAIL_FROM = os.environ.get("EMAIL_FROM", "noreply@holygrills.ng")
     EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Holy Grills")
+
+    # Push — OneSignal
+    ONESIGNAL_APP_ID = os.environ.get("ONESIGNAL_APP_ID", "")
+    ONESIGNAL_API_KEY = os.environ.get("ONESIGNAL_API_KEY", "")
 
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
@@ -88,16 +96,6 @@ class Config:
     except Exception:
         TIER_THRESHOLDS = {"starter": 0, "regular": 1000, "champion": 5000, "elite": 12000}
 
-    # Referral milestones
-    REFERRAL_MILESTONE_1_COUNT = int(os.environ.get("REFERRAL_MILESTONE_1_COUNT", "5"))
-    REFERRAL_MILESTONE_2_COUNT = int(os.environ.get("REFERRAL_MILESTONE_2_COUNT", "10"))
-    REFERRAL_MILESTONE_5_HP = int(os.environ.get("REFERRAL_MILESTONE_5_HP", "150"))
-    REFERRAL_MILESTONE_10_HP = int(os.environ.get("REFERRAL_MILESTONE_10_HP", "400"))
-    # Repeating milestone bonus: every 25 referrals beyond 50 (at 75, 100, 125, …)
-    REFERRAL_MILESTONE_REPEAT_HP = int(os.environ.get("REFERRAL_MILESTONE_REPEAT_HP", "1500"))
-    REFERRAL_MILESTONE_REPEAT_BASE = int(os.environ.get("REFERRAL_MILESTONE_REPEAT_BASE", "50"))
-    REFERRAL_MILESTONE_REPEAT_INTERVAL = int(os.environ.get("REFERRAL_MILESTONE_REPEAT_INTERVAL", "25"))
-
     # Flash redemption
     FLASH_DISCOUNT_PCT = float(os.environ.get("FLASH_DISCOUNT_PCT", "0.50"))
     FLASH_MAX_QTY = int(os.environ.get("FLASH_MAX_QTY", "5"))
@@ -132,9 +130,6 @@ class Config:
 
     TIER_GRACE_PERIOD_DAYS = int(os.environ.get("TIER_GRACE_PERIOD_DAYS", "7"))
 
-    # Challenge caps (event check-in monthly cap removed)
-    CHALLENGE_MAX_HP_REWARD = int(os.environ.get("CHALLENGE_MAX_HP_REWARD", "100"))
-
     # Marketplace / Cart
     LOW_CODE_INVENTORY_THRESHOLD = int(os.environ.get("LOW_CODE_INVENTORY_THRESHOLD", "5"))
     ABANDONED_CART_MINUTES = int(os.environ.get("ABANDONED_CART_MINUTES", "60"))
@@ -147,7 +142,7 @@ class Config:
     # subtotal discount. Both discounts can be toggled independently.
     SQUAD_ORDER_ENABLED = os.environ.get("SQUAD_ORDER_ENABLED", "true").lower() == "true"
     SQUAD_ORDER_MIN_ITEMS = int(os.environ.get("SQUAD_ORDER_MIN_ITEMS", "3"))
-    SQUAD_ORDER_MAX_ITEMS = int(os.environ.get("SQUAD_ORDER_MAX_ITEMS", "20"))
+    SQUAD_ORDER_MAX_ITEMS = int(os.environ.get("SQUAD_ORDER_MAX_ITEMS", "6"))
     # Delivery-fee discount: percentage of delivery_fee to waive (0-100)
     SQUAD_DELIVERY_DISCOUNT_ENABLED = os.environ.get("SQUAD_DELIVERY_DISCOUNT_ENABLED", "true").lower() == "true"
     SQUAD_DELIVERY_DISCOUNT_PCT = float(os.environ.get("SQUAD_DELIVERY_DISCOUNT_PCT", "100"))
@@ -161,18 +156,6 @@ class Config:
     # HP transfer constraints
     HP_TRANSFER_MIN_AMOUNT  = int(os.environ.get("HP_TRANSFER_MIN_AMOUNT",  "10"))
     HP_TRANSFER_MIN_ORDERS  = int(os.environ.get("HP_TRANSFER_MIN_ORDERS",  "3"))
-
-    # Spin wheel cost
-    SPIN_COST_HP = int(os.environ.get("SPIN_COST_HP", "10"))
-
-    # Spin wheel prize table — JSON list of {label, hp, weight} entries.
-    # Override via SPIN_PRIZES env var to change prizes/weights without a deploy.
-    _spin_prizes_default = '[{"label":"5 HP","hp":5,"weight":35},{"label":"10 HP","hp":10,"weight":25},{"label":"20 HP","hp":20,"weight":15},{"label":"50 HP","hp":50,"weight":10},{"label":"100 HP","hp":100,"weight":7},{"label":"200 HP","hp":200,"weight":5},{"label":"500 HP","hp":500,"weight":2},{"label":"No win","hp":0,"weight":1}]'
-    try:
-        import json as _json
-        SPIN_PRIZES = _json.loads(os.environ.get("SPIN_PRIZES", _spin_prizes_default))
-    except Exception:
-        SPIN_PRIZES = [{"label": "5 HP", "hp": 5, "weight": 35}, {"label": "10 HP", "hp": 10, "weight": 25}, {"label": "20 HP", "hp": 20, "weight": 15}, {"label": "50 HP", "hp": 50, "weight": 10}, {"label": "100 HP", "hp": 100, "weight": 7}, {"label": "200 HP", "hp": 200, "weight": 5}, {"label": "500 HP", "hp": 500, "weight": 2}, {"label": "No win", "hp": 0, "weight": 1}]
 
     # Wallet minimum top-up via card
     WALLET_MIN_CARD_TOPUP = float(os.environ.get("WALLET_MIN_CARD_TOPUP", "100"))
@@ -236,6 +219,54 @@ class Config:
 
     # Reward fulfilment time communicated in email (hours)
     REWARD_FULFILMENT_HOURS = int(os.environ.get("REWARD_FULFILMENT_HOURS", "24"))
+
+    # ── Free Side Credits ─────────────────────────────────────────────────────
+    FREE_SIDE_CREDITS_VALIDITY_DAYS = int(os.environ.get("FREE_SIDE_CREDITS_VALIDITY_DAYS", "60"))
+
+    # ── Exclusive Spin ────────────────────────────────────────────────────────
+    # Credits are leaderboard rewards only; there is no HP purchase path.
+    EXCLUSIVE_SPIN_VALIDITY_DAYS = int(os.environ.get("EXCLUSIVE_SPIN_VALIDITY_DAYS", "30"))
+
+    # Exclusive spin prize template — configurable without deploy
+    _exc_spin_default = '[{"name":"Free Sausage \u00d72","weight":15},{"name":"Free Gizzard \u00d73","weight":15},{"name":"Free Side","weight":10},{"name":"Free Coleslaw","weight":10},{"name":"HP Jackpot +750","weight":5},{"name":"HP Bolt +300","weight":20},{"name":"HP Boost +150","weight":15},{"name":"Double HP next order","weight":10}]'
+    try:
+        import json as _json
+        EXCLUSIVE_SPIN_TEMPLATE_ITEMS = _json.loads(os.environ.get("EXCLUSIVE_SPIN_TEMPLATE_ITEMS", _exc_spin_default))
+    except Exception:
+        EXCLUSIVE_SPIN_TEMPLATE_ITEMS = [
+            {"name": "Free Sausage ×2", "weight": 15},
+            {"name": "Free Gizzard ×3", "weight": 15},
+            {"name": "Free Side",       "weight": 10},
+            {"name": "Free Coleslaw",   "weight": 10},
+            {"name": "HP Jackpot +750", "weight": 5},
+            {"name": "HP Bolt +300",    "weight": 20},
+            {"name": "HP Boost +150",   "weight": 15},
+            {"name": "Double HP next order", "weight": 10},
+        ]
+
+    # Free side options (admin-configurable via system_settings.free_side_options)
+    _free_sides_default = '["Fries","Coleslaw","Plantain","Gizzard"]'
+    try:
+        import json as _json
+        FREE_SIDE_OPTIONS = _json.loads(os.environ.get("FREE_SIDE_OPTIONS", _free_sides_default))
+    except Exception:
+        FREE_SIDE_OPTIONS = ["Fries", "Coleslaw", "Plantain", "Gizzard"]
+
+    # ── Order Streak Rewards (config fallback; DB table is authoritative) ─────
+    _order_streak_default = '{"3":100,"6":200,"12":350}'
+    try:
+        import json as _json
+        ORDER_STREAK_REWARDS = _json.loads(os.environ.get("ORDER_STREAK_REWARDS", _order_streak_default))
+    except Exception:
+        ORDER_STREAK_REWARDS = {"3": 100, "6": 200, "12": 350}
+
+    # ── Membership Rewards (config fallback; DB table is authoritative) ───────
+    _membership_default = '{"3":100,"6":200,"12":500,"24":750,"36":1000,"48":1250,"60":1500}'
+    try:
+        import json as _json
+        MEMBERSHIP_REWARDS = _json.loads(os.environ.get("MEMBERSHIP_REWARDS", _membership_default))
+    except Exception:
+        MEMBERSHIP_REWARDS = {"3": 100, "6": 200, "12": 500, "24": 750, "36": 1000, "48": 1250, "60": 1500}
 
     # ── Rate limits (requests / window_seconds per IP) ─────────────────────────
     RATE_LIMIT_REGISTER_REQUESTS  = int(os.environ.get("RATE_LIMIT_REGISTER_REQUESTS",  "10"))
